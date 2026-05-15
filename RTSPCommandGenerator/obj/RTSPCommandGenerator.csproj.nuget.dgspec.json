@@ -1,96 +1,9 @@
 {
   "format": 1,
   "restore": {
-    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj": {}
+    "E:\\Project\\ffmpeg-runner\\RTSPCommandGenerator\\RTSPCommandGenerator.csproj": {}
   },
   "projects": {
-    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj": {
-      "version": "1.0.0",
-      "restore": {
-        "projectUniqueName": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
-        "projectName": "FFmpegRunner.Tests",
-        "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
-        "packagesPath": "C:\\Users\\ttttt\\.nuget\\packages\\",
-        "outputPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\obj\\",
-        "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "E:\\Microsoft VS Studio\\Shared\\NuGetPackages"
-        ],
-        "configFilePaths": [
-          "C:\\Users\\ttttt\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
-        ],
-        "originalTargetFrameworks": [
-          "net8.0"
-        ],
-        "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-          "https://api.nuget.org/v3/index.json": {}
-        },
-        "frameworks": {
-          "net8.0": {
-            "targetAlias": "net8.0",
-            "projectReferences": {
-              "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj": {
-                "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj"
-              }
-            }
-          }
-        },
-        "warningProperties": {
-          "warnAsError": [
-            "NU1605"
-          ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
-        },
-        "SdkAnalysisLevel": "10.0.200"
-      },
-      "frameworks": {
-        "net8.0": {
-          "targetAlias": "net8.0",
-          "dependencies": {
-            "Microsoft.NET.Test.Sdk": {
-              "target": "Package",
-              "version": "[17.14.1, )"
-            },
-            "coverlet.collector": {
-              "target": "Package",
-              "version": "[6.0.4, )"
-            },
-            "xunit": {
-              "target": "Package",
-              "version": "[2.9.3, )"
-            },
-            "xunit.runner.visualstudio": {
-              "target": "Package",
-              "version": "[3.1.4, )"
-            }
-          },
-          "imports": [
-            "net461",
-            "net462",
-            "net47",
-            "net471",
-            "net472",
-            "net48",
-            "net481"
-          ],
-          "assetTargetFallback": true,
-          "warn": true,
-          "frameworkReferences": {
-            "Microsoft.NETCore.App": {
-              "privateAssets": "all"
-            }
-          },
-          "runtimeIdentifierGraphPath": "C:\\PROGRAM FILES\\DOTNET\\sdk\\10.0.204/PortableRuntimeIdentifierGraph.json"
-        }
-      }
-    },
     "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj": {
       "version": "1.0.0",
       "restore": {
@@ -190,6 +103,75 @@
           "assetTargetFallback": true,
           "warn": true,
           "runtimeIdentifierGraphPath": "C:\\PROGRAM FILES\\DOTNET\\sdk\\10.0.204\\RuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "E:\\Project\\ffmpeg-runner\\RTSPCommandGenerator\\RTSPCommandGenerator.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "E:\\Project\\ffmpeg-runner\\RTSPCommandGenerator\\RTSPCommandGenerator.csproj",
+        "projectName": "RTSPCommandGenerator",
+        "projectPath": "E:\\Project\\ffmpeg-runner\\RTSPCommandGenerator\\RTSPCommandGenerator.csproj",
+        "packagesPath": "C:\\Users\\ttttt\\.nuget\\packages\\",
+        "outputPath": "E:\\Project\\ffmpeg-runner\\RTSPCommandGenerator\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "E:\\Microsoft VS Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\Users\\ttttt\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj": {
+                "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.200"
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\PROGRAM FILES\\DOTNET\\sdk\\10.0.204/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

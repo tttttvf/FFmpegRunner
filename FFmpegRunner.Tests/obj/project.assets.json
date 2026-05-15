@@ -1034,11 +1034,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
+      "projectUniqueName": "e:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
       "projectName": "FFmpegRunner.Tests",
-      "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
+      "projectPath": "e:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
       "packagesPath": "C:\\Users\\ttttt\\.nuget\\packages\\",
-      "outputPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\obj\\",
+      "outputPath": "e:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "E:\\Microsoft VS Studio\\Shared\\NuGetPackages"
@@ -1075,7 +1075,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.300"
+      "SdkAnalysisLevel": "10.0.200"
     },
     "frameworks": {
       "net8.0": {
@@ -1114,7 +1114,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\PROGRAM FILES\\DOTNET\\sdk\\9.0.314/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\PROGRAM FILES\\DOTNET\\sdk\\10.0.204/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

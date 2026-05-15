@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FFmpegRunner;
 
 namespace FFmpegRunner.Tests
@@ -101,6 +102,8 @@ namespace FFmpegRunner.Tests
                 .Build();
 
             Assert.Equal("pipe", runner.TargetPath);
+            Assert.NotNull(runner.Pipe);
+            Assert.IsType<StreamPipe>(runner.Pipe);
         }
 
         [Fact]
@@ -112,6 +115,8 @@ namespace FFmpegRunner.Tests
                 .Build();
 
             Assert.Equal("pipe", runner.TargetPath);
+            Assert.NotNull(runner.Pipe);
+            Assert.Equal("custom-pipe-name", runner.Pipe.PipeName);
         }
 
         [Fact]
@@ -142,29 +147,33 @@ namespace FFmpegRunner.Tests
         {
             var callbackFired = false;
             byte[]? receivedData = null;
+            FrameMetadata? receivedMetadata = null;
 
-            FFmpegConfig.SetFFmpegPath(@"E:\ffmpeg-2026-05-13-git-a327bc0561-full_build\bin\ffmpeg.exe");
             var runner = new FFmpegBuilder()
-                .FromSource(@"rtmp://liteavapp.qcloud.com/live/liteavdemoplayerstreamid")
+                .FromSource("input.mp4")
                 .WithVideoCodec("h264")
                 .WithFormat("flv")
-                .ToPipe(pipe => pipe.WithCallback(data =>
+                .ToPipe(pipe => pipe.WithCallback((data, metadata) =>
                 {
                     callbackFired = true;
                     receivedData = data;
+                    receivedMetadata = metadata;
                 }))
                 .Build();
 
             Assert.NotNull(runner);
+            Assert.NotNull(runner.Pipe);
 
             var testData = new byte[] { 0x00, 0x01, 0x02 };
-            typeof(FFmpegRunner)
-                .GetMethod("OnPipeDataReceived",
+
+            typeof(StreamPipe)
+                .GetMethod("OnDataReceived",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.Invoke(runner, new object[] { testData });
+                ?.Invoke(runner.Pipe, new object[] { testData });
 
             Assert.True(callbackFired);
             Assert.Equal(testData, receivedData);
+            Assert.Null(receivedMetadata);
         }
 
         [Fact]
@@ -241,16 +250,17 @@ namespace FFmpegRunner.Tests
         }
 
         [Fact]
-        public void WithBufferCapacity_ShouldSetRunnerProperty()
+        public void WithBufferCapacity_ShouldSetPipeProperty()
         {
             var runner = new FFmpegBuilder()
                 .FromSource("input.mp4")
                 .ToPipe(pipe => pipe
-                    .WithCallback(_ => { })
+                    .WithCallback((_, _) => { })
                     .WithBufferCapacity(200))
                 .Build();
 
-            Assert.Equal(200, runner.PipeBufferCapacity);
+            Assert.NotNull(runner.Pipe);
+            Assert.Equal(200, runner.Pipe.BufferCapacity);
         }
 
         [Fact]
@@ -259,11 +269,12 @@ namespace FFmpegRunner.Tests
             var runner = new FFmpegBuilder()
                 .FromSource("input.mp4")
                 .ToPipe(pipe => pipe
-                    .WithCallback(_ => { })
+                    .WithCallback((_, _) => { })
                     .WithBufferCapacity(-5))
                 .Build();
 
-            Assert.Equal(1, runner.PipeBufferCapacity);
+            Assert.NotNull(runner.Pipe);
+            Assert.Equal(1, runner.Pipe.BufferCapacity);
         }
 
         [Fact]
@@ -273,15 +284,16 @@ namespace FFmpegRunner.Tests
                 .FromSource("input.mp4")
                 .WithVideoCodec("h264")
                 .ToPipe(pipe => pipe
-                    .WithCallback(_ => { })
+                    .WithCallback((_, _) => { })
                     .WithBufferCapacity(50))
                 .Build();
 
-            Assert.Equal(50, runner.PipeBufferCapacity);
+            Assert.NotNull(runner.Pipe);
+            Assert.Equal(50, runner.Pipe.BufferCapacity);
         }
 
         [Fact]
-        public void NonPipeTarget_ShouldNotTriggerPipeEvent()
+        public void NonPipeTarget_ShouldNotCreatePipe()
         {
             var runner = new FFmpegBuilder()
                 .FromSource("input.mp4")
@@ -289,6 +301,47 @@ namespace FFmpegRunner.Tests
                 .Build();
 
             Assert.Equal("output.mp4", runner.TargetPath);
+            Assert.Null(runner.Pipe);
+        }
+
+        [Fact]
+        public void ToPipe_WithPipeType_Frame_ShouldCreateFramePipe()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe(pipe => pipe
+                    .WithCallback((_, _) => { })
+                    .WithPipeType(PipeType.Frame))
+                .Build();
+
+            Assert.NotNull(runner.Pipe);
+            Assert.IsType<FramePipe>(runner.Pipe);
+        }
+
+        [Fact]
+        public void ToPipe_WithPipeType_Stream_ShouldCreateStreamPipe()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe(pipe => pipe
+                    .WithCallback((_, _) => { })
+                    .WithPipeType(PipeType.Stream))
+                .Build();
+
+            Assert.NotNull(runner.Pipe);
+            Assert.IsType<StreamPipe>(runner.Pipe);
+        }
+
+        [Fact]
+        public void ToPipe_DefaultPipeType_ShouldBeStream()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe(pipe => pipe.WithCallback((_, _) => { }))
+                .Build();
+
+            Assert.NotNull(runner.Pipe);
+            Assert.IsType<StreamPipe>(runner.Pipe);
         }
     }
 
@@ -311,17 +364,19 @@ namespace FFmpegRunner.Tests
         }
 
         [Fact]
-        public void Constructor_WithPipeOutput_ShouldSetPipeName()
+        public void Constructor_WithPipe_ShouldSetPipe()
         {
+            var pipe = new StreamPipe("my-pipe");
             var runner = new FFmpegRunner(
                 "ffmpeg",
                 "source.mp4",
                 "-c:v h264",
                 "pipe",
-                usePipeOutput: true,
-                pipeName: "my-pipe");
+                pipe);
 
             Assert.Equal("pipe", runner.TargetPath);
+            Assert.NotNull(runner.Pipe);
+            Assert.Equal("my-pipe", runner.Pipe!.PipeName);
             Assert.Null(runner.Process);
         }
 
@@ -387,35 +442,28 @@ namespace FFmpegRunner.Tests
         }
 
         [Fact]
-        public void PipeBufferCapacity_DefaultShouldBe100()
+        public void PipeDataReceived_ThroughPipe_ShouldBeSubscribable()
         {
-            var runner = new FFmpegRunner("ffmpeg", "src.mp4", "-c copy", "pipe", usePipeOutput: true);
-
-            Assert.Equal(100, runner.PipeBufferCapacity);
-        }
-
-        [Fact]
-        public void PipeDataReceived_ShouldBeSubscribable()
-        {
+            var pipe = new StreamPipe("test-pipe");
             var runner = new FFmpegRunner(
                 "ffmpeg",
                 "src.mp4",
                 "-c copy",
                 "pipe",
-                usePipeOutput: true);
+                pipe);
 
             var eventFired = false;
 
-            runner.PipeDataReceived += (_, e) =>
+            runner.Pipe!.DataReceived += (_, e) =>
             {
                 eventFired = true;
                 Assert.NotNull(e.Data);
             };
 
-            typeof(FFmpegRunner)
-                .GetMethod("OnPipeDataReceived",
+            typeof(StreamPipe)
+                .GetMethod("OnDataReceived",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.Invoke(runner, new object[] { new byte[] { 0xAA, 0xBB } });
+                ?.Invoke(runner.Pipe, new object[] { new byte[] { 0xAA, 0xBB } });
 
             Assert.True(eventFired);
         }
@@ -428,6 +476,218 @@ namespace FFmpegRunner.Tests
             runner.Dispose();
 
             Assert.Null(runner.Process);
+        }
+    }
+
+    public class StreamPipeTests
+    {
+        [Fact]
+        public void Constructor_ShouldSetPipeName()
+        {
+            var pipe = new StreamPipe("test-pipe");
+
+            Assert.Equal("test-pipe", pipe.PipeName);
+            Assert.Equal(100, pipe.BufferCapacity);
+        }
+
+        [Fact]
+        public void BufferCapacity_ShouldBeSettable()
+        {
+            var pipe = new StreamPipe("test-pipe")
+            {
+                BufferCapacity = 200
+            };
+
+            Assert.Equal(200, pipe.BufferCapacity);
+        }
+
+        [Fact]
+        public void GetOutputTarget_OnWindows_ShouldReturnWindowsPath()
+        {
+            var pipe = new StreamPipe("my-pipe");
+            var target = pipe.GetOutputTarget();
+
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                Assert.Equal(@"\\.\pipe\my-pipe", target);
+            }
+            else
+            {
+                Assert.Contains("my-pipe", target);
+            }
+        }
+
+        [Fact]
+        public void DataReceived_ShouldFireEvent()
+        {
+            var pipe = new StreamPipe("test-pipe");
+            var fired = false;
+            byte[]? received = null;
+
+            pipe.DataReceived += (_, e) =>
+            {
+                fired = true;
+                received = e.Data;
+            };
+
+            typeof(StreamPipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { new byte[] { 0x01, 0x02 } });
+
+            Assert.True(fired);
+            Assert.Equal(new byte[] { 0x01, 0x02 }, received);
+        }
+
+        [Fact]
+        public void Initialize_ShouldNotThrow()
+        {
+            using var pipe = new StreamPipe(Guid.NewGuid().ToString("N"));
+            pipe.Initialize();
+        }
+
+        [Fact]
+        public void Stop_WithoutStart_ShouldNotThrow()
+        {
+            var pipe = new StreamPipe("test-pipe");
+            pipe.Stop();
+        }
+
+        [Fact]
+        public void Dispose_ShouldCleanup()
+        {
+            var pipe = new StreamPipe(Guid.NewGuid().ToString("N"));
+            pipe.Initialize();
+            pipe.Dispose();
+        }
+    }
+
+    public class FramePipeTests
+    {
+        [Fact]
+        public void Constructor_ShouldSetPipeName()
+        {
+            var pipe = new FramePipe("frame-pipe");
+
+            Assert.Equal("frame-pipe", pipe.PipeName);
+            Assert.Equal(100, pipe.BufferCapacity);
+        }
+
+        [Fact]
+        public void BufferCapacity_ShouldBeSettable()
+        {
+            var pipe = new FramePipe("frame-pipe")
+            {
+                BufferCapacity = 50
+            };
+
+            Assert.Equal(50, pipe.BufferCapacity);
+        }
+
+        [Fact]
+        public void GetOutputTarget_ShouldReturnValidPath()
+        {
+            var pipe = new FramePipe("frame-pipe");
+            var target = pipe.GetOutputTarget();
+
+            Assert.NotNull(target);
+            Assert.Contains("frame-pipe", target);
+        }
+
+        [Fact]
+        public void DataReceived_ShouldFireEvent()
+        {
+            var pipe = new FramePipe("test-pipe");
+            var fired = false;
+            byte[]? received = null;
+
+            pipe.DataReceived += (_, e) =>
+            {
+                fired = true;
+                received = e.Data;
+            };
+
+            typeof(FramePipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { new byte[] { 0xFF, 0xEE } });
+
+            Assert.True(fired);
+            Assert.Equal(new byte[] { 0xFF, 0xEE }, received);
+        }
+
+        [Fact]
+        public void Initialize_ShouldNotThrow()
+        {
+            using var pipe = new FramePipe(Guid.NewGuid().ToString("N"));
+            pipe.Initialize();
+        }
+
+        [Fact]
+        public void Stop_WithoutStart_ShouldNotThrow()
+        {
+            var pipe = new FramePipe("test-pipe");
+            pipe.Stop();
+        }
+
+        [Fact]
+        public void Dispose_ShouldCleanup()
+        {
+            var pipe = new FramePipe(Guid.NewGuid().ToString("N"));
+            pipe.Initialize();
+            pipe.Dispose();
+        }
+    }
+
+    public class PipeTargetTests
+    {
+        [Fact]
+        public void WithPipeType_Stream_ShouldConfigureStream()
+        {
+            var pipeTarget = new PipeTarget();
+            pipeTarget.WithPipeType(PipeType.Stream);
+
+            Assert.Equal(PipeType.Stream, pipeTarget.GetType()
+                .GetProperty("PipeType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(pipeTarget));
+        }
+
+        [Fact]
+        public void WithPipeType_Frame_ShouldConfigureFrame()
+        {
+            var pipeTarget = new PipeTarget();
+            pipeTarget.WithPipeType(PipeType.Frame);
+
+            Assert.Equal(PipeType.Frame, pipeTarget.GetType()
+                .GetProperty("PipeType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(pipeTarget));
+        }
+
+        [Fact]
+        public void DefaultPipeType_ShouldBeStream()
+        {
+            var pipeTarget = new PipeTarget();
+
+            Assert.Equal(PipeType.Stream, pipeTarget.GetType()
+                .GetProperty("PipeType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(pipeTarget));
+        }
+
+        [Fact]
+        public void FluentChain_WithPipeType()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe(pipe => pipe
+                    .WithPipeType(PipeType.Frame)
+                    .WithBufferCapacity(300)
+                    .WithPipeName("my-frame-pipe"))
+                .Build();
+
+            Assert.NotNull(runner.Pipe);
+            Assert.IsType<FramePipe>(runner.Pipe);
+            Assert.Equal("my-frame-pipe", runner.Pipe.PipeName);
+            Assert.Equal(300, runner.Pipe.BufferCapacity);
         }
     }
 
@@ -475,12 +735,234 @@ namespace FFmpegRunner.Tests
         }
 
         [Fact]
-        public void PipeDataEventArgs_ShouldWrapData()
+        public void FrameEventArgs_ShouldWrapDataAndMetadata()
         {
             var data = new byte[] { 1, 2, 3, 4, 5 };
-            var args = new PipeDataEventArgs(data);
+            var metadata = new FrameMetadata
+            {
+                Size = data.Length,
+                Type = FrameType.I,
+                IsKeyFrame = true,
+                Width = 1920,
+                Height = 1080,
+                Timestamp = 1000
+            };
+            var args = new FrameEventArgs(data, metadata);
 
             Assert.Equal(data, args.Data);
+            Assert.NotNull(args.Metadata);
+            Assert.Equal(data.Length, args.Metadata.Size);
+            Assert.Equal(FrameType.I, args.Metadata.Type);
+            Assert.True(args.Metadata.IsKeyFrame);
+            Assert.Equal(1920, args.Metadata.Width);
+            Assert.Equal(1080, args.Metadata.Height);
+            Assert.Equal(1000, args.Metadata.Timestamp);
+        }
+
+        [Fact]
+        public void FrameEventArgs_WithoutMetadata_ShouldBeNull()
+        {
+            var data = new byte[] { 1, 2, 3, 4, 5 };
+            var args = new FrameEventArgs(data, null);
+
+            Assert.Equal(data, args.Data);
+            Assert.Null(args.Metadata);
+        }
+
+        [Fact]
+        public void FrameMetadata_DefaultValues()
+        {
+            var metadata = new FrameMetadata();
+
+            Assert.Equal(0, metadata.Timestamp);
+            Assert.Equal(0, metadata.DecodeTimestamp);
+            Assert.Equal(FrameType.Unknown, metadata.Type);
+            Assert.Equal(0, metadata.Width);
+            Assert.Equal(0, metadata.Height);
+            Assert.False(metadata.IsKeyFrame);
+            Assert.Equal(0, metadata.Size);
+        }
+
+        [Fact]
+        public void FramePipe_ShouldReturnDefaultMetadata()
+        {
+            var pipe = new FramePipe("test-pipe");
+
+            FrameEventArgs? receivedArgs = null;
+            pipe.DataReceived += (_, e) => receivedArgs = e;
+
+            typeof(FramePipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { new byte[] { 0xAA, 0xBB, 0xCC, 0xDD } });
+
+            Assert.NotNull(receivedArgs);
+            Assert.NotNull(receivedArgs!.Metadata);
+            Assert.Equal(4, receivedArgs.Metadata.Size);
+            Assert.Equal(FrameType.Unknown, receivedArgs.Metadata.Type);
+        }
+
+        [Fact]
+        public void StreamPipe_EventArgs_Metadata_ShouldBeNull()
+        {
+            var pipe = new StreamPipe("test-pipe");
+
+            FrameEventArgs? receivedArgs = null;
+            pipe.DataReceived += (_, e) => receivedArgs = e;
+
+            typeof(StreamPipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { new byte[] { 0x11, 0x22 } });
+
+            Assert.NotNull(receivedArgs);
+            Assert.Equal(new byte[] { 0x11, 0x22 }, receivedArgs!.Data);
+            Assert.Null(receivedArgs.Metadata);
+        }
+
+        [Fact]
+        public void Builder_WithCallback_ShouldPassDataAndMetadata()
+        {
+            var receivedData = new List<byte[]>();
+            var receivedMetadata = new List<FrameMetadata?>();
+
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe(pipe => pipe
+                    .WithPipeType(PipeType.Frame)
+                    .WithCallback((data, metadata) =>
+                    {
+                        receivedData.Add(data);
+                        receivedMetadata.Add(metadata);
+                    }))
+                .Build();
+
+            Assert.NotNull(runner.Pipe);
+
+            var testData = new byte[] { 0x01, 0x02, 0x03 };
+            typeof(FramePipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(runner.Pipe, new object[] { testData });
+
+            Assert.Single(receivedData);
+            Assert.Equal(testData, receivedData[0]);
+            Assert.Single(receivedMetadata);
+            Assert.NotNull(receivedMetadata[0]);
+            Assert.Equal(3, receivedMetadata[0]!.Size);
+        }
+
+        [Fact]
+        public void FromRtspSource_ShouldSetSourceAndTransport()
+        {
+            var runner = new FFmpegBuilder()
+                .FromRtspSource("rtsp://192.168.1.100:554/stream")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-rtsp_transport tcp", runner.CommandArguments);
+            Assert.Contains("rtsp://192.168.1.100:554/stream", runner.SourcePath);
+        }
+
+        [Fact]
+        public void FromRtspSource_WithUdp_ShouldSetTransport()
+        {
+            var runner = new FFmpegBuilder()
+                .FromRtspSource("rtsp://192.168.1.100:554/stream", "udp")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-rtsp_transport udp", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void FromRtspSource_WithInvalidTransport_ShouldThrow()
+        {
+            Assert.Throws<ArgumentException>(() => new FFmpegBuilder()
+                .FromRtspSource("rtsp://192.168.1.100:554/stream", "invalid")
+                .ToFile("output.mp4")
+                .Build());
+        }
+
+        [Fact]
+        public void FromRtspSource_WithNullAddress_ShouldThrow()
+        {
+            Assert.Throws<ArgumentNullException>(() => new FFmpegBuilder()
+                .FromRtspSource(null!)
+                .ToFile("output.mp4"));
+        }
+
+        [Fact]
+        public void ToRtsp_ShouldSetTargetAndFormat()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToRtsp("rtsp://192.168.1.100:554/live/stream")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-rtsp_transport tcp", runner.CommandArguments);
+            Assert.Contains("-f rtsp", runner.CommandArguments);
+            Assert.Contains("rtsp://192.168.1.100:554/live/stream", runner.TargetPath);
+        }
+
+        [Fact]
+        public void ToRtsp_WithUdp_ShouldSetTransport()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToRtsp("rtsp://192.168.1.100:554/live/stream", "udp")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-rtsp_transport udp", runner.CommandArguments);
+            Assert.Contains("-f rtsp", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void ToRtsp_WithInvalidTransport_ShouldThrow()
+        {
+            Assert.Throws<ArgumentException>(() => new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToRtsp("rtsp://192.168.1.100:554/live/stream", "http"));
+        }
+
+        [Fact]
+        public void ToRtsp_WithNullAddress_ShouldThrow()
+        {
+            Assert.Throws<ArgumentNullException>(() => new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToRtsp(null!));
+        }
+
+        [Fact]
+        public void ToRtsp_AfterWithFormat_ShouldOverrideFormat()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithFormat("flv")
+                .ToRtsp("rtsp://192.168.1.100:554/live/stream")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-f rtsp", runner.CommandArguments);
+            Assert.DoesNotContain("-f flv", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void WithFormat_BeforeToRtsp_ShouldBeIgnored()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithFormat("mp4")
+                .ToRtsp("rtsp://192.168.1.100:554/live/stream")
+                .Build();
+
+            Assert.NotNull(runner);
+            Assert.Contains("-f rtsp", runner.CommandArguments);
+            Assert.DoesNotContain("-f mp4", runner.CommandArguments);
         }
     }
 }

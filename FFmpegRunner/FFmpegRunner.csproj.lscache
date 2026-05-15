@@ -62,8 +62,14 @@ FFmpegRunner.cs
 obj/Debug/net8.0/
  .NETCoreApp,Version=v8.0.AssemblyAttributes.cs
  FFmpegRunner.AssemblyInfo.cs
-PipeDataEventArgs.cs
-PipeTarget.cs
+Pipes/
+ FrameEventArgs.cs
+ FrameMetadata.cs
+ FramePipe.cs
+ IPipeInterface.cs
+ PipeTarget.cs
+ PipeType.cs
+ StreamPipe.cs
 StreamInfo.cs
 
 [metadataReferences]
@@ -304,8 +310,14 @@ FFmpegRunner.cs
 obj/Debug/netstandard2.0/
  .NETStandard,Version=v2.0.AssemblyAttributes.cs
  FFmpegRunner.AssemblyInfo.cs
-PipeDataEventArgs.cs
-PipeTarget.cs
+Pipes/
+ FrameEventArgs.cs
+ FrameMetadata.cs
+ FramePipe.cs
+ IPipeInterface.cs
+ PipeTarget.cs
+ PipeType.cs
+ StreamPipe.cs
 StreamInfo.cs
 
 [metadataReferences]

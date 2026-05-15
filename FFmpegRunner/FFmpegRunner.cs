@@ -2,12 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace FFmpegRunner
@@ -19,15 +16,9 @@ namespace FFmpegRunner
     public class FFmpegRunner : IDisposable
     {
         private Process? _process;
-        private NamedPipeServerStream? _pipeServer;
-        private CancellationTokenSource? _cancelCts;
-        private Task? _pipeReadTask;
-        private Task? _pipeConsumerTask;
-        private Channel<byte[]>? _pipeChannel;
+        private IPipeInterface? _pipe;
         private bool _disposed;
         private string? _ffmpegPath;
-        private readonly string _pipeName;
-        private readonly bool _usePipeOutput;
 
         /// <summary>
         /// 获取当前正在运行的 <see cref="System.Diagnostics.Process"/> 实例。
@@ -72,15 +63,9 @@ namespace FFmpegRunner
         public int TimeoutMilliseconds { get; set; }
 
         /// <summary>
-        /// 获取或设置管道数据缓冲区的容量（数据块数）。默认值 100。
-        /// 仅在 <see cref="SetupPipeIfNeeded"/> 调用前设置有效。
+        /// 获取当前使用的管道接口实例。当输出目标为 pipe 模式时可用。
         /// </summary>
-        public int PipeBufferCapacity { get; set; } = 100;
-
-        /// <summary>
-        /// 当目标地址为 Pipe 模式且读取到新的管道数据时触发。
-        /// </summary>
-        public event EventHandler<PipeDataEventArgs>? PipeDataReceived;
+        public IPipeInterface? Pipe => _pipe;
 
         /// <summary>
         /// 初始化 <see cref="FFmpegRunner"/> 类的新实例。
@@ -89,22 +74,19 @@ namespace FFmpegRunner
         /// <param name="sourcePath">媒体源文件路径或流地址。</param>
         /// <param name="commandArguments">FFmpeg 命令行参数。</param>
         /// <param name="targetPath">输出目标地址。</param>
-        /// <param name="usePipeOutput">是否使用命名管道输出。</param>
-        /// <param name="pipeName">管道名称。为 <c>null</c> 时自动生成 GUID 名称。</param>
+        /// <param name="pipe">管道接口实例。为 <c>null</c> 时不使用管道输出。</param>
         public FFmpegRunner(
             string? ffmpegPath,
             string sourcePath,
             string commandArguments,
             string targetPath,
-            bool usePipeOutput = false,
-            string? pipeName = null)
+            IPipeInterface? pipe = null)
         {
             SourcePath = sourcePath ?? throw new ArgumentNullException(nameof(sourcePath));
             CommandArguments = commandArguments ?? throw new ArgumentNullException(nameof(commandArguments));
             TargetPath = targetPath ?? throw new ArgumentNullException(nameof(targetPath));
             _ffmpegPath = ffmpegPath;
-            _usePipeOutput = usePipeOutput;
-            _pipeName = pipeName ?? Guid.NewGuid().ToString("N");
+            _pipe = pipe;
         }
 
         /// <summary>
@@ -155,13 +137,13 @@ namespace FFmpegRunner
         {
             ThrowIfAlreadyRunning();
 
-            SetupPipeIfNeeded();
+            _pipe?.Initialize();
 
             _process = CreateProcess();
 
             try
             {
-                BeginPipeReadIfNeeded(CancellationToken.None);
+                _pipe?.Start(CancellationToken.None);
 
                 _process.Start();
 
@@ -182,7 +164,7 @@ namespace FFmpegRunner
                 StandardError = stdErrTask.Result;
                 StandardOutput = stdOutTask.Result;
 
-                StopPipeRead();
+                _pipe?.Stop();
 
                 return _process.ExitCode;
             }
@@ -202,13 +184,13 @@ namespace FFmpegRunner
         {
             ThrowIfAlreadyRunning();
 
-            SetupPipeIfNeeded();
+            _pipe?.Initialize();
 
             _process = CreateProcess();
 
             try
             {
-                BeginPipeReadIfNeeded(cancellationToken);
+                _pipe?.Start(cancellationToken);
 
                 _process.Start();
 
@@ -254,14 +236,14 @@ namespace FFmpegRunner
                 {
                     StandardError = await stdErrTask.ConfigureAwait(false);
                     StandardOutput = await stdOutTask.ConfigureAwait(false);
-                    StopPipeRead();
+                    _pipe?.Stop();
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
                 StandardError = await stdErrTask.ConfigureAwait(false);
                 StandardOutput = await stdOutTask.ConfigureAwait(false);
 
-                StopPipeRead();
+                _pipe?.Stop();
 
                 return _process.ExitCode;
             }
@@ -278,15 +260,6 @@ namespace FFmpegRunner
         public void Stop()
         {
             KillProcess();
-        }
-
-        /// <summary>
-        /// 触发 <see cref="PipeDataReceived"/> 事件。
-        /// </summary>
-        /// <param name="data">管道读取的数据。</param>
-        protected virtual void OnPipeDataReceived(byte[] data)
-        {
-            PipeDataReceived?.Invoke(this, new PipeDataEventArgs(data));
         }
 
         /// <summary>
@@ -308,37 +281,13 @@ namespace FFmpegRunner
 
             if (disposing)
             {
-                StopPipeRead();
+                _pipe?.Stop();
                 KillProcess();
-                DisposePipeServer();
+                _pipe?.Dispose();
                 _process?.Dispose();
             }
 
             _disposed = true;
-        }
-
-        private void SetupPipeIfNeeded()
-        {
-            if (!_usePipeOutput)
-            {
-                return;
-            }
-            else
-            {
-                _pipeServer = new NamedPipeServerStream(
-                    _pipeName,
-                    PipeDirection.InOut,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous,
-                    65536,
-                    65536);
-            }
-
-            _pipeChannel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(PipeBufferCapacity)
-            {
-                FullMode = BoundedChannelFullMode.Wait
-            });
         }
 
         private Process CreateProcess()
@@ -363,19 +312,10 @@ namespace FFmpegRunner
 
         private string GetOutputTarget()
         {
-            if (!_usePipeOutput)
-                return TargetPath;
+            if (_pipe != null)
+                return _pipe.GetOutputTarget();
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                return $"\\\\.\\pipe\\{_pipeName}";
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                return $"pipe:{_pipeName}";
-            }
-
-            return $"pipe:1";
+            return TargetPath;
         }
 
         private string ResolveFFmpegPath()
@@ -388,153 +328,6 @@ namespace FFmpegRunner
             var resolved = FFmpegConfig.GetFFmpegPath();
             _ffmpegPath = resolved;
             return resolved;
-        }
-
-        private void BeginPipeReadIfNeeded(CancellationToken cancellationToken)
-        {
-            if (!_usePipeOutput)
-                return;
-
-            if (_pipeServer != null)
-            {
-                BeginNamedPipeRead(_pipeServer, cancellationToken);
-                StartPipeConsumer(cancellationToken);
-            }
-        }
-
-        private void BeginNamedPipeRead(NamedPipeServerStream pipeServer, CancellationToken cancellationToken)
-        {
-            _cancelCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-            var token = _cancelCts.Token;
-            var writer = _pipeChannel!.Writer;
-
-            _pipeReadTask = Task.Run(async () =>
-            {
-                try
-                {
-                    await pipeServer.WaitForConnectionAsync(token).ConfigureAwait(false);
-
-                    var buffer = new byte[8192];
-
-                    while (!token.IsCancellationRequested)
-                    {
-                        var bytesRead = await pipeServer.ReadAsync(
-                            buffer, 0, buffer.Length, token).ConfigureAwait(false);
-
-                        if (bytesRead == 0)
-                        {
-                            if (!pipeServer.IsConnected)
-                                break;
-
-                            continue;
-                        }
-
-                        var data = new byte[bytesRead];
-                        Array.Copy(buffer, data, bytesRead);
-                        await writer.WriteAsync(data, token).ConfigureAwait(false);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                }
-                catch (IOException)
-                {
-                }
-                finally
-                {
-                    writer.TryComplete();
-                }
-            }, token);
-        }
-
-        private void StartPipeConsumer(CancellationToken cancellationToken)
-        {
-            var reader = _pipeChannel!.Reader;
-            var token = _cancelCts!.Token;
-
-            _pipeConsumerTask = Task.Run(async () =>
-            {
-                try
-                {
-                    while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
-                    {
-                        while (reader.TryRead(out var data))
-                        {
-                            OnPipeDataReceived(data);
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }, token);
-        }
-
-        private void StopPipeRead()
-        {
-            if (_cancelCts != null)
-            {
-                try
-                {
-                    _cancelCts.Cancel();
-                }
-                catch (AggregateException)
-                {
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-
-                try
-                {
-                    _cancelCts.Dispose();
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-            }
-
-            _pipeReadTask = null;
-            _pipeConsumerTask = null;
-            _cancelCts = null;
-            _pipeChannel = null;
-        }
-
-        private void DisposePipeServer()
-        {
-            if (_pipeServer != null)
-            {
-                try
-                {
-                    if (_pipeServer.IsConnected)
-                    {
-                        _pipeServer.Disconnect();
-                    }
-                }
-                catch (IOException)
-                {
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-                catch (InvalidOperationException)
-                {
-                }
-
-                try
-                {
-                    _pipeServer.Dispose();
-                }
-                catch (IOException)
-                {
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-
-                _pipeServer = null;
-            }
         }
 
         private void KillProcess()

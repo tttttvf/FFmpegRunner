@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace FFmpegRunner
 {
@@ -9,15 +12,27 @@ namespace FFmpegRunner
     /// </summary>
     public class FFmpegBuilder
     {
+        private static readonly HashSet<string> ValidRtspInputTransports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "tcp", "udp", "http"
+        };
+
+        private static readonly HashSet<string> ValidRtspOutputTransports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "tcp", "udp"
+        };
+
         private readonly StringBuilder _arguments = new StringBuilder();
         private string _sourcePath = string.Empty;
         private string? _ffmpegPath;
         private string _targetPath = string.Empty;
-        private Action<byte[]>? _pipeDataCallback;
+        private Action<byte[], FrameMetadata?>? _pipeDataCallback;
         private bool _overwrite;
         private bool _usePipeOutput;
         private string _pipeName = Guid.NewGuid().ToString("N");
         private int _bufferCapacity = 100;
+        private PipeType _pipeType = PipeType.Stream;
+        private bool _isRtspOutput;
 
         /// <summary>
         /// 初始化 <see cref="FFmpegBuilder"/> 类的新实例。
@@ -45,6 +60,30 @@ namespace FFmpegRunner
         public FFmpegBuilder FromSource(string sourcePath)
         {
             _sourcePath = sourcePath ?? throw new ArgumentNullException(nameof(sourcePath));
+            return this;
+        }
+
+        /// <summary>
+        /// 配置 RTSP 拉流源地址。
+        /// </summary>
+        /// <param name="rtspAddress">RTSP 拉流地址，如 <c>rtsp://192.168.1.100:554/stream</c>。</param>
+        /// <param name="transportProtocol">RTSP 传输协议，支持 "tcp"（默认）、"udp"、"http"。</param>
+        /// <returns>当前构建器实例。</returns>
+        /// <exception cref="ArgumentNullException">当 <paramref name="rtspAddress"/> 为 <c>null</c> 或空时抛出。</exception>
+        /// <exception cref="ArgumentException">当 <paramref name="transportProtocol"/> 不在允许的值范围内时抛出。</exception>
+        public FFmpegBuilder FromRtspSource(string rtspAddress, string transportProtocol = "tcp")
+        {
+            if (string.IsNullOrWhiteSpace(rtspAddress))
+                throw new ArgumentNullException(nameof(rtspAddress));
+
+            if (!ValidRtspInputTransports.Contains(transportProtocol))
+                throw new ArgumentException(
+                    $"无效的 RTSP 传输协议: {transportProtocol}。允许的值: {string.Join(", ", ValidRtspInputTransports)}",
+                    nameof(transportProtocol));
+
+            _sourcePath = rtspAddress;
+            _arguments.Append($" -rtsp_transport {transportProtocol}");
+
             return this;
         }
 
@@ -196,6 +235,9 @@ namespace FFmpegRunner
         /// </summary>
         /// <param name="format">格式名称（如 mp4、avi、flv、matroska）。</param>
         /// <returns>当前构建器实例。</returns>
+        /// <remarks>
+        /// 注意：当调用 <see cref="ToRtsp"/> 配置 RTSP 推流后，此方法设置的格式参数将被 RTSP 推流格式（-f rtsp）覆盖并忽略。
+        /// </remarks>
         public FFmpegBuilder WithFormat(string format)
         {
             _arguments.Append($" -f {format}");
@@ -268,7 +310,7 @@ namespace FFmpegRunner
         /// <summary>
         /// 配置输出到管道并设置管道回调等选项。
         /// </summary>
-        /// <param name="configure">管道配置委托，如 <c>pipe => pipe.WithCallback(data => { }).WithBufferCapacity(200)</c>。</param>
+        /// <param name="configure">管道配置委托，如 <c>pipe => pipe.WithCallback((data, meta) => { }).WithBufferCapacity(200)</c>。</param>
         /// <returns>当前构建器实例。</returns>
         public FFmpegBuilder ToPipe(Action<PipeTarget> configure)
         {
@@ -283,6 +325,7 @@ namespace FFmpegRunner
             _targetPath = "pipe";
             _pipeDataCallback = pipeTarget.Callback;
             _bufferCapacity = pipeTarget.BufferCapacity;
+            _pipeType = pipeTarget.PipeType;
 
             return this;
         }
@@ -296,6 +339,37 @@ namespace FFmpegRunner
         {
             _targetPath = filePath ?? throw new ArgumentNullException(nameof(filePath));
             _usePipeOutput = false;
+            return this;
+        }
+
+        /// <summary>
+        /// 配置输出到 RTSP 推流地址。
+        /// </summary>
+        /// <param name="rtspAddress">RTSP 推流地址，如 <c>rtsp://192.168.1.100:554/live/stream</c>。</param>
+        /// <param name="transportProtocol">RTSP 传输协议，仅支持 "tcp"（默认）或 "udp"。</param>
+        /// <returns>当前构建器实例。</returns>
+        /// <exception cref="ArgumentNullException">当 <paramref name="rtspAddress"/> 为 <c>null</c> 或空时抛出。</exception>
+        /// <exception cref="ArgumentException">当 <paramref name="transportProtocol"/> 不是 "tcp" 或 "udp" 时抛出。</exception>
+        /// <remarks>
+        /// 此方法会自动添加 <c>-rtsp_transport {protocol}</c> 和 <c>-f rtsp</c> 参数。
+        /// 注意：如果在此之前调用了 <see cref="WithFormat"/> 设置了其他格式参数，
+        /// 该参数将被 RTSP 推流格式（-f rtsp）覆盖并忽略。
+        /// </remarks>
+        public FFmpegBuilder ToRtsp(string rtspAddress, string transportProtocol = "tcp")
+        {
+            if (string.IsNullOrWhiteSpace(rtspAddress))
+                throw new ArgumentNullException(nameof(rtspAddress));
+
+            if (!ValidRtspOutputTransports.Contains(transportProtocol))
+                throw new ArgumentException(
+                    $"无效的 RTSP 传输协议: {transportProtocol}。允许的值: {string.Join(", ", ValidRtspOutputTransports)}",
+                    nameof(transportProtocol));
+
+            _isRtspOutput = true;
+            _targetPath = rtspAddress;
+            RemoveFormatArguments();
+            _arguments.Append($" -rtsp_transport {transportProtocol} -f rtsp");
+
             return this;
         }
 
@@ -320,32 +394,65 @@ namespace FFmpegRunner
         {
             if (string.IsNullOrEmpty(_sourcePath))
             {
-                throw new InvalidOperationException("必须设置源路径（调用 FromSource()）。");
+                throw new InvalidOperationException("必须设置源路径（调用 FromSource() 或 FromRtspSource()）。");
             }
 
             if (string.IsNullOrEmpty(_targetPath) && !_usePipeOutput)
             {
-                throw new InvalidOperationException("必须设置输出目标（调用 ToFile()、ToPipe() 或 ToNetwork()）。");
+                throw new InvalidOperationException("必须设置输出目标（调用 ToFile()、ToPipe()、ToNetwork() 或 ToRtsp()）。");
             }
 
             var commandArgs = BuildCommandArguments();
+
+            if (_isRtspOutput && commandArgs.Contains("-f ") && !commandArgs.Contains("-f rtsp"))
+            {
+                throw new InvalidOperationException("RTSP 推流模式不允许使用其他格式参数。请仅使用 ToRtsp() 方法配置 RTSP 推流。");
+            }
+
+            IPipeInterface? pipe = null;
+
+            if (_usePipeOutput)
+            {
+                pipe = CreatePipe(_pipeType, _pipeName);
+                pipe.BufferCapacity = _bufferCapacity;
+            }
 
             var runner = new FFmpegRunner(
                 _ffmpegPath,
                 _sourcePath,
                 commandArgs,
                 _targetPath,
-                _usePipeOutput,
-                _pipeName);
+                pipe);
 
-            runner.PipeBufferCapacity = _bufferCapacity;
-
-            if (_pipeDataCallback != null)
+            if (pipe != null && _pipeDataCallback != null)
             {
-                runner.PipeDataReceived += (_, e) => _pipeDataCallback(e.Data);
+                pipe.DataReceived += (_, e) => _pipeDataCallback(e.Data, e.Metadata);
             }
 
             return runner;
+        }
+
+        private static IPipeInterface CreatePipe(PipeType pipeType, string pipeName)
+        {
+            switch (pipeType)
+            {
+                case PipeType.Frame:
+                    return new FramePipe(pipeName);
+                case PipeType.Stream:
+                default:
+                    return new StreamPipe(pipeName);
+            }
+        }
+
+        private void RemoveFormatArguments()
+        {
+            var args = _arguments.ToString();
+            var pattern = @"-f\s+\S+";
+            var result = Regex.Replace(args, pattern, "");
+            result = Regex.Replace(result, @"\s+", " ").Trim();
+
+            _arguments.Clear();
+            _arguments.Append(result);
         }
 
         private string BuildCommandArguments()
@@ -357,7 +464,7 @@ namespace FFmpegRunner
                 sb.Append("-y ");
             }
 
-            sb.Append(_arguments.ToString());
+            sb.Append(_arguments.ToString().Trim());
 
             return sb.ToString().Trim();
         }
