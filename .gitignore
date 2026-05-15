@@ -1,0 +1,8 @@
+FFmpegRunner/bin/
+FFmpegRunner/obj/debug/
+FFmpegRunner/obj/release/
+FFmpegRunner.Tests/bin/
+FFmpegRunner.Tests/obj/debug/
+FFmpegRunner.Tests/obj/release/
+.vs/
+.vscode/
