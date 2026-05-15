@@ -13,6 +13,7 @@ namespace FFmpegRunner
         internal Action<byte[], FrameMetadata?>? Callback { get; private set; }
         internal int BufferCapacity { get; private set; } = 100;
         internal PipeType PipeType { get; private set; } = PipeType.Stream;
+        internal IFrameAnalyzer? FrameAnalyzer { get; private set; }
 
         /// <summary>
         /// 设置管道数据回调处理函数。
@@ -67,6 +68,25 @@ namespace FFmpegRunner
         public PipeTarget WithPipeType(PipeType pipeType)
         {
             PipeType = pipeType;
+            return this;
+        }
+
+        /// <summary>
+        /// 设置帧数据分析器实例。仅对 <see cref="PipeType.Frame"/> 管道生效。
+        /// 设置 <c>null</c> 可禁用帧分析，仅使用基本的尺寸元数据。
+        /// </summary>
+        /// <param name="analyzer">帧分析器实例。为 <c>null</c> 时禁用分析。</param>
+        /// <returns>当前配置实例。</returns>
+        /// <example>
+        /// <code>
+        /// .WithFrameAnalyzer(new CompositeFrameAnalyzer(
+        ///     new H264FrameAnalyzer(),
+        ///     new H265FrameAnalyzer()))
+        /// </code>
+        /// </example>
+        public PipeTarget WithFrameAnalyzer(IFrameAnalyzer? analyzer)
+        {
+            FrameAnalyzer = analyzer;
             return this;
         }
     }

@@ -23,6 +23,7 @@ namespace FFmpegRunner
         };
 
         private readonly StringBuilder _arguments = new StringBuilder();
+        private InputOptions? _inputOptions;
         private string _sourcePath = string.Empty;
         private string? _ffmpegPath;
         private string _targetPath = string.Empty;
@@ -32,6 +33,8 @@ namespace FFmpegRunner
         private string _pipeName = Guid.NewGuid().ToString("N");
         private int _bufferCapacity = 100;
         private PipeType _pipeType = PipeType.Stream;
+        private IFrameAnalyzer? _frameAnalyzer;
+        private bool _videoCodecExplicitlySet;
         private bool _isRtspOutput;
 
         /// <summary>
@@ -56,22 +59,37 @@ namespace FFmpegRunner
         /// 设置媒体源文件路径或流地址。
         /// </summary>
         /// <param name="sourcePath">媒体源路径。</param>
+        /// <param name="configureInput">
+        /// 可选输入参数配置回调，用于设置位于 <c>-i</c> 之前的输入选项。
+        /// 如 <c>opt => opt.WithFrameRate(30).WithHardwareAcceleration("cuda")</c>。
+        /// </param>
         /// <returns>当前构建器实例。</returns>
-        public FFmpegBuilder FromSource(string sourcePath)
+        public FFmpegBuilder FromSource(string sourcePath, Action<InputOptions>? configureInput = null)
         {
             _sourcePath = sourcePath ?? throw new ArgumentNullException(nameof(sourcePath));
+
+            if (configureInput != null)
+            {
+                _inputOptions = new InputOptions();
+                configureInput(_inputOptions);
+            }
+
             return this;
         }
 
         /// <summary>
-        /// 配置 RTSP 拉流源地址。
+        /// 配置 RTSP 拉流源地址，支持通过回调配置输入参数。
         /// </summary>
         /// <param name="rtspAddress">RTSP 拉流地址，如 <c>rtsp://192.168.1.100:554/stream</c>。</param>
         /// <param name="transportProtocol">RTSP 传输协议，支持 "tcp"（默认）、"udp"、"http"。</param>
+        /// <param name="configureInput">
+        /// 可选输入参数配置回调。RTSP 传输协议会自动添加，回调中可设置额外的输入参数。
+        /// 如 <c>opt => opt.WithBufferSize(65536).WithTimeout(5000000)</c>。
+        /// </param>
         /// <returns>当前构建器实例。</returns>
         /// <exception cref="ArgumentNullException">当 <paramref name="rtspAddress"/> 为 <c>null</c> 或空时抛出。</exception>
         /// <exception cref="ArgumentException">当 <paramref name="transportProtocol"/> 不在允许的值范围内时抛出。</exception>
-        public FFmpegBuilder FromRtspSource(string rtspAddress, string transportProtocol = "tcp")
+        public FFmpegBuilder FromRtspSource(string rtspAddress, string transportProtocol = "tcp", Action<InputOptions>? configureInput = null)
         {
             if (string.IsNullOrWhiteSpace(rtspAddress))
                 throw new ArgumentNullException(nameof(rtspAddress));
@@ -82,7 +100,10 @@ namespace FFmpegRunner
                     nameof(transportProtocol));
 
             _sourcePath = rtspAddress;
-            _arguments.Append($" -rtsp_transport {transportProtocol}");
+
+            _inputOptions = new InputOptions();
+            _inputOptions.WithRtspTransport(transportProtocol);
+            configureInput?.Invoke(_inputOptions);
 
             return this;
         }
@@ -139,6 +160,26 @@ namespace FFmpegRunner
         public FFmpegBuilder WithVideoCodec(string codec)
         {
             _arguments.Append($" -c:v {codec}");
+            _videoCodecExplicitlySet = true;
+            return this;
+        }
+
+        /// <summary>
+        /// 清除已设置的视频编码器配置（-c:v），恢复为默认行为。
+        /// 调用此方法后，系统将使用默认的 H.264 输出编码器。
+        /// </summary>
+        /// <returns>当前构建器实例。</returns>
+        public FFmpegBuilder WithoutVideoCodec()
+        {
+            var args = _arguments.ToString();
+            var pattern = @"-c:v\s+\S+";
+            var result = Regex.Replace(args, pattern, "");
+            result = Regex.Replace(result, @"\s+", " ").Trim();
+
+            _arguments.Clear();
+            _arguments.Append(result);
+            _videoCodecExplicitlySet = false;
+
             return this;
         }
 
@@ -326,6 +367,7 @@ namespace FFmpegRunner
             _pipeDataCallback = pipeTarget.Callback;
             _bufferCapacity = pipeTarget.BufferCapacity;
             _pipeType = pipeTarget.PipeType;
+            _frameAnalyzer = pipeTarget.FrameAnalyzer;
 
             return this;
         }
@@ -403,6 +445,13 @@ namespace FFmpegRunner
             }
 
             var commandArgs = BuildCommandArguments();
+            var inputArgs = _inputOptions?.BuildArguments() ?? string.Empty;
+
+            if (!_videoCodecExplicitlySet && !HasVideoCodecInCustomArgs(commandArgs))
+            {
+                var defaultCodec = " -c:v libx264";
+                commandArgs = commandArgs + defaultCodec;
+            }
 
             if (_isRtspOutput && commandArgs.Contains("-f ") && !commandArgs.Contains("-f rtsp"))
             {
@@ -413,7 +462,7 @@ namespace FFmpegRunner
 
             if (_usePipeOutput)
             {
-                pipe = CreatePipe(_pipeType, _pipeName);
+                pipe = CreatePipe(_pipeType, _pipeName, _frameAnalyzer);
                 pipe.BufferCapacity = _bufferCapacity;
             }
 
@@ -422,7 +471,11 @@ namespace FFmpegRunner
                 _sourcePath,
                 commandArgs,
                 _targetPath,
-                pipe);
+                pipe)
+            {
+                InputArguments = inputArgs,
+                Overwrite = _overwrite
+            };
 
             if (pipe != null && _pipeDataCallback != null)
             {
@@ -432,12 +485,23 @@ namespace FFmpegRunner
             return runner;
         }
 
-        private static IPipeInterface CreatePipe(PipeType pipeType, string pipeName)
+        private static bool HasVideoCodecInCustomArgs(string arguments)
+        {
+            if (string.IsNullOrEmpty(arguments))
+                return false;
+
+            return Regex.IsMatch(arguments, @"-c:v\s+\S+") || Regex.IsMatch(arguments, @"-vcodec\s+\S+");
+        }
+
+        private static IPipeInterface CreatePipe(PipeType pipeType, string pipeName, IFrameAnalyzer? frameAnalyzer)
         {
             switch (pipeType)
             {
                 case PipeType.Frame:
-                    return new FramePipe(pipeName);
+                    var framePipe = new FramePipe(pipeName);
+                    if (frameAnalyzer != null)
+                        framePipe.FrameAnalyzer = frameAnalyzer;
+                    return framePipe;
                 case PipeType.Stream:
                 default:
                     return new StreamPipe(pipeName);
@@ -457,16 +521,7 @@ namespace FFmpegRunner
 
         private string BuildCommandArguments()
         {
-            var sb = new StringBuilder();
-
-            if (_overwrite)
-            {
-                sb.Append("-y ");
-            }
-
-            sb.Append(_arguments.ToString().Trim());
-
-            return sb.ToString().Trim();
+            return _arguments.ToString().Trim();
         }
     }
 }

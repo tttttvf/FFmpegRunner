@@ -59,6 +59,15 @@ TemporaryDependencyNodeTargetIdentifier=net8.0
 FFmpegBuilder.cs
 FFmpegConfig.cs
 FFmpegRunner.cs
+FrameAnalyzers/
+ CompositeFrameAnalyzer.cs
+ FrameAnalyzer.cs
+ H264FrameAnalyzer.cs
+ H265FrameAnalyzer.cs
+ IFrameAnalyzer.cs
+ MjpegFrameAnalyzer.cs
+HardwareAccelerationType.cs
+InputOptions.cs
 obj/Debug/net8.0/
  .NETCoreApp,Version=v8.0.AssemblyAttributes.cs
  FFmpegRunner.AssemblyInfo.cs
@@ -307,6 +316,15 @@ TemporaryDependencyNodeTargetIdentifier=netstandard2.0
 FFmpegBuilder.cs
 FFmpegConfig.cs
 FFmpegRunner.cs
+FrameAnalyzers/
+ CompositeFrameAnalyzer.cs
+ FrameAnalyzer.cs
+ H264FrameAnalyzer.cs
+ H265FrameAnalyzer.cs
+ IFrameAnalyzer.cs
+ MjpegFrameAnalyzer.cs
+HardwareAccelerationType.cs
+InputOptions.cs
 obj/Debug/netstandard2.0/
  .NETStandard,Version=v2.0.AssemblyAttributes.cs
  FFmpegRunner.AssemblyInfo.cs

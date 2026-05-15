@@ -1059,8 +1059,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj": {
-              "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj"
+            "e:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj": {
+              "projectPath": "e:\\Project\\ffmpeg-runner\\FFmpegRunner\\FFmpegRunner.csproj"
             }
           }
         }

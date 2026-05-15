@@ -38,7 +38,13 @@ namespace FFmpegRunner
         public string SourcePath { get; }
 
         /// <summary>
-        /// 获取完整的 FFmpeg 命令行参数。
+        /// 获取应用于输入源之前的 FFmpeg 输入参数（如 -r、-buffer_size、-timeout 等）。
+        /// 这些参数会被放置在 <c>-i</c> 之前，仅对下一个输入生效。
+        /// </summary>
+        public string InputArguments { get; internal set; } = string.Empty;
+
+        /// <summary>
+        /// 获取完整的 FFmpeg 命令行参数（输出参数部分，放置在输出目标之前）。
         /// </summary>
         public string CommandArguments { get; }
 
@@ -56,6 +62,11 @@ namespace FFmpegRunner
         /// 获取标准错误流的完整内容（包含 FFmpeg 的日志和进度信息）。
         /// </summary>
         public string StandardError { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// 获取或设置是否使用 -y 标志覆盖输出文件。默认值为 <c>true</c>。
+        /// </summary>
+        public bool Overwrite { get; internal set; } = true;
 
         /// <summary>
         /// 获取或设置进程超时时间（毫秒）。默认值 0 表示无超时。
@@ -294,11 +305,12 @@ namespace FFmpegRunner
         {
             var resolvedPath = ResolveFFmpegPath();
             var outputTarget = GetOutputTarget();
+            var overwriteFlag = Overwrite ? "-y " : string.Empty;
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = resolvedPath,
-                Arguments = $"-y -i \"{SourcePath}\" {CommandArguments} {outputTarget}",
+                Arguments = $"{InputArguments} {overwriteFlag}-i \"{SourcePath}\" {CommandArguments} {outputTarget}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

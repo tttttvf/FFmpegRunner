@@ -21,7 +21,8 @@ namespace FFmpegRunner
     /// </remarks>
     public class FramePipe : IPipeInterface
     {
-        private const int MaxFrameSize = 100 * 1024 * 1024;
+        private int _maxFrameSize = 100 * 1024 * 1024;
+        private const int MinMaxFrameSize = 1024;
         private const int BufferSize = 65536;
 
         private NamedPipeServerStream? _pipeServer;
@@ -30,6 +31,14 @@ namespace FFmpegRunner
         private Task? _consumerTask;
         private Channel<byte[]>? _channel;
         private bool _disposed;
+        private int _readTimeoutMs = 5000;
+
+        /// <summary>
+        /// 获取或设置帧数据分析器实例。默认使用 <see cref="CompositeFrameAnalyzer"/>
+        /// （包含 H.264、H.265 和 MJPEG 分析器）。设置 <c>null</c> 可禁用帧分析，
+        /// 仅使用基本的尺寸元数据。
+        /// </summary>
+        public IFrameAnalyzer? FrameAnalyzer { get; set; } = new CompositeFrameAnalyzer();
 
         /// <summary>
         /// 获取当前管道的名称。
@@ -37,9 +46,29 @@ namespace FFmpegRunner
         public string PipeName { get; }
 
         /// <summary>
+        /// 获取或设置单次读取操作的超时时间（毫秒）。默认值 5000ms。
+        /// 设置为 0 表示无超时。
+        /// </summary>
+        public int ReadTimeoutMilliseconds
+        {
+            get => _readTimeoutMs;
+            set => _readTimeoutMs = Math.Max(0, value);
+        }
+
+        /// <summary>
         /// 获取或设置管道数据缓冲区的容量（数据块数）。必须在 <see cref="Initialize"/> 之前设置。默认值 100。
         /// </summary>
         public int BufferCapacity { get; set; } = 100;
+
+        /// <summary>
+        /// 获取或设置允许的最大帧数据大小（字节）。默认值 100 MB。最小值为 1024 字节。
+        /// 超过此大小的帧将被丢弃。
+        /// </summary>
+        public int MaxFrameSize
+        {
+            get => _maxFrameSize;
+            set => _maxFrameSize = Math.Max(value, MinMaxFrameSize);
+        }
 
         /// <summary>
         /// 当管道读取到完整的帧数据时触发。
@@ -109,33 +138,59 @@ namespace FFmpegRunner
                 {
                     await pipeServer.WaitForConnectionAsync(token).ConfigureAwait(false);
 
+                    var readTimeout = _readTimeoutMs;
+
                     while (!token.IsCancellationRequested)
                     {
                         if (!pipeServer_IsConnected(pipeServer))
                             break;
 
-                        var frameLength = await ReadFrameLengthAsync(
-                            pipeServer, sharedBuffer, token).ConfigureAwait(false);
+                        CancellationToken readToken = token;
+                        CancellationTokenSource? timeoutCts = null;
 
-                        if (frameLength <= 0)
-                            break;
+                        if (readTimeout > 0)
+                        {
+                            timeoutCts = new CancellationTokenSource(readTimeout);
+                            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                            readToken = linkedCts.Token;
+                        }
 
-                        if (frameLength > MaxFrameSize)
-                            break;
+                        try
+                        {
+                            var frameLength = await ReadFrameLengthAsync(
+                                pipeServer, sharedBuffer, readToken).ConfigureAwait(false);
 
-                        var frameData = await ReadFrameDataAsync(
-                            pipeServer, sharedBuffer, frameLength, token).ConfigureAwait(false);
+                            if (frameLength <= 0)
+                                break;
 
-                        if (frameData == null)
-                            break;
+                            if (frameLength > _maxFrameSize)
+                                break;
 
-                        await writer.WriteAsync(frameData, token).ConfigureAwait(false);
+                            var frameData = await ReadFrameDataAsync(
+                                pipeServer, sharedBuffer, frameLength, readToken).ConfigureAwait(false);
+
+                            if (frameData == null)
+                                break;
+
+                            await writer.WriteAsync(frameData, token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                        {
+                            continue;
+                        }
+                        finally
+                        {
+                            timeoutCts?.Dispose();
+                        }
                     }
                 }
                 catch (OperationCanceledException)
                 {
                 }
                 catch (IOException)
+                {
+                }
+                catch (ObjectDisposedException)
                 {
                 }
                 finally
@@ -241,15 +296,35 @@ namespace FFmpegRunner
         }
 
         /// <summary>
-        /// 触发 <see cref="DataReceived"/> 事件。
+        /// 触发 <see cref="DataReceived"/> 事件，使用注入的 <see cref="IFrameAnalyzer"/> 分析帧数据。
         /// </summary>
         /// <param name="data">从管道读取的帧数据。</param>
         protected virtual void OnDataReceived(byte[] data)
         {
-            var metadata = new FrameMetadata
+            FrameMetadata metadata;
+
+            var analyzer = FrameAnalyzer;
+
+            if (analyzer != null && analyzer.IsAudioFrame(data))
             {
-                Size = data.Length
-            };
+                metadata = new FrameMetadata
+                {
+                    Size = data.Length,
+                    Type = FrameType.Audio
+                };
+            }
+            else if (analyzer != null && analyzer.TryAnalyze(data, out var analyzed) && analyzed != null)
+            {
+                metadata = analyzed;
+            }
+            else
+            {
+                metadata = new FrameMetadata
+                {
+                    Size = data.Length
+                };
+            }
+
             DataReceived?.Invoke(this, new FrameEventArgs(data, metadata));
         }
 
@@ -266,6 +341,8 @@ namespace FFmpegRunner
             CancellationToken token)
         {
             var offset = 0;
+            var zeroReadCount = 0;
+            const int maxZeroReads = 10;
 
             while (offset < 4)
             {
@@ -277,12 +354,18 @@ namespace FFmpegRunner
 
                 if (bytesRead == 0)
                 {
+                    zeroReadCount++;
+
                     if (!pipeServer_IsConnected(pipeStream))
+                        return -1;
+
+                    if (zeroReadCount >= maxZeroReads)
                         return -1;
 
                     continue;
                 }
 
+                zeroReadCount = 0;
                 offset += bytesRead;
             }
 
@@ -308,6 +391,8 @@ namespace FFmpegRunner
 
             var frameData = new byte[frameLength];
             var offset = 0;
+            var zeroReadCount = 0;
+            const int maxZeroReads = 10;
 
             while (offset < frameLength)
             {
@@ -320,12 +405,18 @@ namespace FFmpegRunner
 
                 if (bytesRead == 0)
                 {
+                    zeroReadCount++;
+
                     if (!pipeServer_IsConnected(pipeStream))
+                        return null;
+
+                    if (zeroReadCount >= maxZeroReads)
                         return null;
 
                     continue;
                 }
 
+                zeroReadCount = 0;
                 Array.Copy(buffer, 0, frameData, offset, bytesRead);
                 offset += bytesRead;
             }

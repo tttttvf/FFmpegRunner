@@ -861,7 +861,7 @@ namespace FFmpegRunner.Tests
                 .Build();
 
             Assert.NotNull(runner);
-            Assert.Contains("-rtsp_transport tcp", runner.CommandArguments);
+            Assert.Contains("-rtsp_transport tcp", runner.InputArguments);
             Assert.Contains("rtsp://192.168.1.100:554/stream", runner.SourcePath);
         }
 
@@ -874,7 +874,7 @@ namespace FFmpegRunner.Tests
                 .Build();
 
             Assert.NotNull(runner);
-            Assert.Contains("-rtsp_transport udp", runner.CommandArguments);
+            Assert.Contains("-rtsp_transport udp", runner.InputArguments);
         }
 
         [Fact]
@@ -963,6 +963,855 @@ namespace FFmpegRunner.Tests
             Assert.NotNull(runner);
             Assert.Contains("-f rtsp", runner.CommandArguments);
             Assert.DoesNotContain("-f mp4", runner.CommandArguments);
+        }
+    }
+
+    public class FFmpegBuilderInputParamsTests
+    {
+        [Fact]
+        public void WithFrameRate_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithFrameRate(30))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-r 30", runner.InputArguments);
+            Assert.DoesNotContain("-r 30", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void WithBufferSize_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("rtsp://camera.local/stream", opt => opt.WithBufferSize(65536))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-buffer_size 65536", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithTimeout_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("rtsp://camera.local/stream", opt => opt.WithTimeout(5000000))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-timeout 5000000", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithFormat_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.h264", opt => opt.WithFormat("h264"))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-f h264", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithVideoCodec_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithVideoCodec("h264_cuvid"))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:v h264_cuvid", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithAudioCodec_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithAudioCodec("aac"))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:a aac", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithHardwareAcceleration_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithHardwareAcceleration(HardwareAccelerationType.D3d11va))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-hwaccel d3d11va", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithNoVideo_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithNoVideo())
+                .ToFile("output.mp3")
+                .Build();
+
+            Assert.Contains("-vn", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithNoAudio_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithNoAudio())
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-an", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithSeekPosition_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithSeekPosition("00:01:30"))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-ss 00:01:30", runner.InputArguments);
+        }
+
+        [Fact]
+        public void WithDuration_ShouldSetInputArgument()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt.WithDuration("300"))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-t 300", runner.InputArguments);
+        }
+
+        [Fact]
+        public void MultipleInputParams_ShouldAllBeInInputArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("rtsp://camera.local/stream", opt => opt
+                    .WithFrameRate(25)
+                    .WithBufferSize(131072)
+                    .WithTimeout(10000000)
+                    .WithHardwareAcceleration(HardwareAccelerationType.Dxva2))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-r 25", runner.InputArguments);
+            Assert.Contains("-buffer_size 131072", runner.InputArguments);
+            Assert.Contains("-timeout 10000000", runner.InputArguments);
+            Assert.Contains("-hwaccel dxva2", runner.InputArguments);
+            Assert.True(runner.InputArguments.Length > 0);
+        }
+
+        [Fact]
+        public void InputParams_ShouldNotAppearInCommandArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4", opt => opt
+                    .WithFrameRate(60)
+                    .WithBufferSize(32768))
+                .WithVideoCodec("h264")
+                .WithAudioCodec("aac")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.DoesNotContain("-r 60", runner.CommandArguments);
+            Assert.DoesNotContain("-buffer_size 32768", runner.CommandArguments);
+            Assert.Contains("-c:v h264", runner.CommandArguments);
+            Assert.Contains("-c:a aac", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void FromRtspSource_ShouldPutRtspTransportInInputArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromRtspSource("rtsp://192.168.1.100:554/stream", "udp")
+                .WithVideoCodec("copy")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-rtsp_transport udp", runner.InputArguments);
+            Assert.DoesNotContain("-rtsp_transport", runner.CommandArguments);
+            Assert.Contains("-c:v copy", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void FromRtspSource_WithInputParams_ShouldCombineInputArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromRtspSource("rtsp://192.168.1.100:554/stream", "tcp", opt => opt
+                    .WithBufferSize(65536)
+                    .WithTimeout(5000000))
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-rtsp_transport tcp", runner.InputArguments);
+            Assert.Contains("-buffer_size 65536", runner.InputArguments);
+            Assert.Contains("-timeout 5000000", runner.InputArguments);
+        }
+
+        [Fact]
+        public void FromSource_WithoutCallback_ShouldHaveEmptyInputArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Empty(runner.InputArguments);
+        }
+
+        [Fact]
+        public void OverwriteTrue_ShouldSetFlagOnRunner()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithOverwrite(true)
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.True(runner.Overwrite);
+        }
+
+        [Fact]
+        public void OverwriteFalse_ShouldClearFlagOnRunner()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithOverwrite(false)
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.False(runner.Overwrite);
+        }
+
+        [Fact]
+        public void OverwriteDefault_ShouldBeFalseOnBuilder()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.False(runner.Overwrite);
+        }
+    }
+
+    public class FrameAnalyzerTests
+    {
+        [Fact]
+        public void Analyze_EmptyData_ShouldReturnDefaultMetadata()
+        {
+            var data = Array.Empty<byte>();
+            var metadata = FrameAnalyzer.Analyze(data);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(0, metadata.Size);
+            Assert.Equal(FrameType.Unknown, metadata.Type);
+            Assert.False(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void Analyze_SmallData_ShouldReturnSizeOnly()
+        {
+            var data = new byte[] { 0x01, 0x02, 0x03 };
+            var metadata = FrameAnalyzer.Analyze(data);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(3, metadata.Size);
+            Assert.Equal(FrameType.Unknown, metadata.Type);
+        }
+
+        [Fact]
+        public void Analyze_H264IdrFrame_ShouldDetectIFrame()
+        {
+            var nalUnit = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01,
+                0x65
+            };
+            var metadata = FrameAnalyzer.Analyze(nalUnit);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void Analyze_H264NonIdrFrame_ShouldDetectPFrame()
+        {
+            var nalUnit = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01,
+                0x41
+            };
+            var metadata = FrameAnalyzer.Analyze(nalUnit);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.P, metadata.Type);
+            Assert.False(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void Analyze_H264WithSps_ShouldDetectIFrame()
+        {
+            var nalUnits = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01,
+                0x67,
+                0x00, 0x00, 0x00, 0x01,
+                0x68,
+                0x00, 0x00, 0x00, 0x01,
+                0x65
+            };
+            var metadata = FrameAnalyzer.Analyze(nalUnits);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void Analyze_JpegData_ShouldDetectIFrame()
+        {
+            var jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46 };
+
+            var metadata = FrameAnalyzer.Analyze(jpeg);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void IsAudioFrame_Mp3Frame_ShouldReturnTrue()
+        {
+            var mp3Frame = new byte[] { 0xFF, 0xFB, 0x90, 0x00 };
+
+            var result = FrameAnalyzer.IsAudioFrame(mp3Frame);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsAudioFrame_AacFrame_ShouldReturnTrue()
+        {
+            var aacFrame = new byte[] { 0xFF, 0xF1, 0x50, 0x80 };
+
+            var result = FrameAnalyzer.IsAudioFrame(aacFrame);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsAudioFrame_Ac3Frame_ShouldReturnTrue()
+        {
+            var ac3Frame = new byte[] { 0x0B, 0x77, 0x00, 0x00, 0x00, 0x00 };
+
+            var result = FrameAnalyzer.IsAudioFrame(ac3Frame);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsAudioFrame_NonAudio_ShouldReturnFalse()
+        {
+            var data = new byte[] { 0x00, 0x01, 0x02, 0x03 };
+
+            var result = FrameAnalyzer.IsAudioFrame(data);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsAudioFrame_SmallData_ShouldReturnFalse()
+        {
+            var data = new byte[] { 0xFF };
+
+            var result = FrameAnalyzer.IsAudioFrame(data);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void Analyze_H265IdrFrame_ShouldDetectIFrame()
+        {
+            var nalUnit = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01,
+                0x26, 0x01
+            };
+            var metadata = FrameAnalyzer.Analyze(nalUnit);
+
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+    }
+
+    public class FramePipeAdvancedTests
+    {
+        [Fact]
+        public void MaxFrameSize_Default_ShouldBe100MB()
+        {
+            var pipe = new FramePipe("test-pipe");
+
+            Assert.Equal(100 * 1024 * 1024, pipe.MaxFrameSize);
+        }
+
+        [Fact]
+        public void MaxFrameSize_Custom_ShouldBeSet()
+        {
+            var pipe = new FramePipe("test-pipe")
+            {
+                MaxFrameSize = 1024 * 1024
+            };
+
+            Assert.Equal(1024 * 1024, pipe.MaxFrameSize);
+        }
+
+        [Fact]
+        public void MaxFrameSize_BelowMinimum_ShouldClamp()
+        {
+            var pipe = new FramePipe("test-pipe")
+            {
+                MaxFrameSize = 100
+            };
+
+            Assert.Equal(1024, pipe.MaxFrameSize);
+        }
+
+        [Fact]
+        public void ReadTimeoutMilliseconds_Default_ShouldBe5000()
+        {
+            var pipe = new FramePipe("test-pipe");
+
+            Assert.Equal(5000, pipe.ReadTimeoutMilliseconds);
+        }
+
+        [Fact]
+        public void ReadTimeoutMilliseconds_Custom_ShouldBeSet()
+        {
+            var pipe = new FramePipe("test-pipe")
+            {
+                ReadTimeoutMilliseconds = 10000
+            };
+
+            Assert.Equal(10000, pipe.ReadTimeoutMilliseconds);
+        }
+
+        [Fact]
+        public void ReadTimeoutMilliseconds_Zero_ShouldBeSet()
+        {
+            var pipe = new FramePipe("test-pipe")
+            {
+                ReadTimeoutMilliseconds = 0
+            };
+
+            Assert.Equal(0, pipe.ReadTimeoutMilliseconds);
+        }
+
+        [Fact]
+        public void DataReceived_WithH264Idr_ShouldHaveCorrectMetadata()
+        {
+            var pipe = new FramePipe("test-pipe");
+
+            FrameEventArgs? receivedArgs = null;
+            pipe.DataReceived += (_, e) => receivedArgs = e;
+
+            var h264Idr = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01,
+                0x65, 0x88, 0x84, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            };
+
+            typeof(FramePipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { h264Idr });
+
+            Assert.NotNull(receivedArgs);
+            Assert.NotNull(receivedArgs!.Metadata);
+            Assert.Equal(FrameType.I, receivedArgs.Metadata.Type);
+            Assert.True(receivedArgs.Metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void DataReceived_WithAudioFrame_ShouldHaveAudioMetadata()
+        {
+            var pipe = new FramePipe("test-pipe");
+
+            FrameEventArgs? receivedArgs = null;
+            pipe.DataReceived += (_, e) => receivedArgs = e;
+
+            var mp3Frame = new byte[]
+            {
+                0xFF, 0xFB, 0x90, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            };
+
+            typeof(FramePipe)
+                .GetMethod("OnDataReceived",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(pipe, new object[] { mp3Frame });
+
+            Assert.NotNull(receivedArgs);
+            Assert.NotNull(receivedArgs!.Metadata);
+            Assert.Equal(FrameType.Audio, receivedArgs.Metadata.Type);
+        }
+    }
+
+    public class FFmpegBuilderDefaultCodecTests
+    {
+        [Fact]
+        public void Build_WithoutVideoCodec_ShouldAddDefaultH264()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithAudioCodec("aac")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:v libx264", runner.CommandArguments);
+            Assert.Contains("-c:a aac", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void Build_WithVideoCodec_ShouldNotAddDefault()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithVideoCodec("h264_nvenc")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:v h264_nvenc", runner.CommandArguments);
+            Assert.DoesNotContain("libx264", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void Build_WithVideoCodecCopy_ShouldNotAddDefault()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithVideoCodec("copy")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:v copy", runner.CommandArguments);
+            Assert.DoesNotContain("libx264", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void Build_WithCustomArgsVideoCodec_ShouldNotAddDefault()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithCustomArguments("-c:v hevc")
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.Contains("-c:v hevc", runner.CommandArguments);
+            Assert.DoesNotContain("libx264", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void WithoutVideoCodec_ShouldRemoveCodecFromArguments()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithVideoCodec("h264_nvenc")
+                .WithoutVideoCodec()
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.DoesNotContain("nvenc", runner.CommandArguments);
+            Assert.Contains("-c:v libx264", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void WithoutVideoCodec_ShouldAllowReaddingDefault()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .WithVideoCodec("hevc")
+                .WithoutVideoCodec()
+                .ToFile("output.mp4")
+                .Build();
+
+            Assert.DoesNotContain("hevc", runner.CommandArguments);
+        }
+
+        [Fact]
+        public void Build_WithPipeOutput_ShouldAlsoAddDefaultCodec()
+        {
+            var runner = new FFmpegBuilder()
+                .FromSource("input.mp4")
+                .ToPipe("test-pipe-default-codec")
+                .Build();
+
+            Assert.Contains("-c:v libx264", runner.CommandArguments);
+        }
+    }
+
+    public class FrameAnalyzerInterfaceTests
+    {
+        [Fact]
+        public void H264Analyzer_ShouldDetectIdrFrame()
+        {
+            var analyzer = new H264FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x65,
+                0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void H264Analyzer_ShouldDetectNonIdrFrame()
+        {
+            var analyzer = new H264FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x41,
+                0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.False(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void H264Analyzer_SmallData_ShouldReturnFalse()
+        {
+            var analyzer = new H264FrameAnalyzer();
+            var result = analyzer.TryAnalyze(new byte[] { 0x00 }, out _);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void H265Analyzer_ShouldDetectIdrFrame()
+        {
+            var analyzer = new H265FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x26, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void H265Analyzer_ShouldDetectNonIdrFrame()
+        {
+            var analyzer = new H265FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x02, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.False(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void H265Analyzer_SmallData_ShouldReturnFalse()
+        {
+            var analyzer = new H265FrameAnalyzer();
+            var result = analyzer.TryAnalyze(new byte[] { 0x00, 0x00 }, out _);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void H265Analyzer_ShouldDetectBlaFrame()
+        {
+            var analyzer = new H265FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x20, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void H265Analyzer_ShouldDetectCraFrame()
+        {
+            var analyzer = new H265FrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x2A, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void MjpegAnalyzer_ShouldDetectJpegFrame()
+        {
+            var analyzer = new MjpegFrameAnalyzer();
+
+            var data = new byte[]
+            {
+                0xFF, 0xD8, 0xFF, 0xE0,
+                0x00, 0x10, 0x4A, 0x46,
+                0xFF, 0xD9
+            };
+
+            var result = analyzer.TryAnalyze(data, out var metadata);
+
+            Assert.True(result);
+            Assert.NotNull(metadata);
+            Assert.Equal(FrameType.I, metadata.Type);
+            Assert.True(metadata.IsKeyFrame);
+        }
+
+        [Fact]
+        public void MjpegAnalyzer_NonJpegData_ShouldReturnFalse()
+        {
+            var analyzer = new MjpegFrameAnalyzer();
+            var result = analyzer.TryAnalyze(new byte[] { 0x00, 0x01, 0x02, 0x03 }, out _);
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void CompositeAnalyzer_Default_ContainsAnalyzers()
+        {
+            var composite = new CompositeFrameAnalyzer();
+
+            Assert.Equal(3, composite.Count);
+
+            var idrData = new byte[]
+            {
+                0x00, 0x00, 0x00, 0x01, 0x65,
+                0x00, 0x00, 0x00, 0x00, 0x00
+            };
+
+            var result = composite.TryAnalyze(idrData, out var metadata);
+            Assert.True(result);
+            Assert.True(metadata!.IsKeyFrame);
+        }
+
+        [Fact]
+        public void CompositeAnalyzer_CustomAnalyzers_ShouldBeUsed()
+        {
+            var composite = new CompositeFrameAnalyzer(new MjpegFrameAnalyzer());
+
+            var jpegData = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0xFF, 0xD9 };
+            var result = composite.TryAnalyze(jpegData, out var metadata);
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void CompositeAnalyzer_AddAnalyzer_ShouldIncreaseCount()
+        {
+            var composite = new CompositeFrameAnalyzer();
+
+            composite.AddAnalyzer(new H264FrameAnalyzer());
+
+            Assert.Equal(4, composite.Count);
+        }
+
+        [Fact]
+        public void CompositeAnalyzer_RemoveAnalyzer_ShouldDecreaseCount()
+        {
+            var composite = new CompositeFrameAnalyzer();
+
+            var removed = composite.RemoveAnalyzer<H264FrameAnalyzer>();
+
+            Assert.True(removed);
+            Assert.Equal(2, composite.Count);
+        }
+
+        [Fact]
+        public void CompositeAnalyzer_RemoveNonexistent_ShouldReturnFalse()
+        {
+            var composite = new CompositeFrameAnalyzer(new MjpegFrameAnalyzer());
+
+            var removed = composite.RemoveAnalyzer<H264FrameAnalyzer>();
+
+            Assert.False(removed);
+            Assert.Equal(1, composite.Count);
+        }
+
+        [Fact]
+        public void PipeTarget_WithFrameAnalyzer_ShouldConfigure()
+        {
+            var target = new PipeTarget();
+            var analyzer = new H264FrameAnalyzer();
+
+            typeof(PipeTarget)
+                .GetMethod("WithFrameAnalyzer")!
+                .Invoke(target, new object?[] { analyzer });
+
+            var storedAnalyzer = typeof(PipeTarget)
+                .GetProperty("FrameAnalyzer",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(target);
+
+            Assert.Same(analyzer, storedAnalyzer);
+        }
+
+        [Fact]
+        public void PipeTarget_WithNullFrameAnalyzer_ShouldDisable()
+        {
+            var target = new PipeTarget();
+
+            typeof(PipeTarget)
+                .GetMethod("WithFrameAnalyzer")!
+                .Invoke(target, new object?[] { null });
+
+            var storedAnalyzer = typeof(PipeTarget)
+                .GetProperty("FrameAnalyzer",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(target);
+
+            Assert.Null(storedAnalyzer);
         }
     }
 }
