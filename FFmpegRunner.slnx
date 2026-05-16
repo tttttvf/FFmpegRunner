@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="FFmpegRunner/FFmpegRunner.csproj" />
+  <Project Path="FFmpegRunner.Tests/FFmpegRunner.Tests.csproj" />
+  <Project Path="FFmpegRunner.Samples/FFmpegRunner.Samples.csproj" />
+</Solution>

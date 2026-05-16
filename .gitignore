@@ -1,11 +1,11 @@
-﻿################################################################################
-# 此 .gitignore 文件已由 Microsoft(R) Visual Studio 自动创建。
-################################################################################
-
-/.vs
-/FFmpegRunner.Tests/obj/Debug/
-/FFmpegRunner.Tests/obj/Release/
-/FFmpegRunner.Tests/bin/Release/
-/FFmpegRunner.Tests/bin/Debug/
-/FFmpegRunner.Samples/obj/Debug/
-/FFmpegRunner.Samples/obj/Release/
+FFmpegRunner/bin/
+FFmpegRunner/obj/debug/
+FFmpegRunner/obj/release/
+FFmpegRunner.Tests/bin/
+FFmpegRunner.Tests/obj/debug/
+FFmpegRunner.Tests/obj/release/
+FFmpegRunner.Samples/bin/
+FFmpegRunner.Samples/obj/debug/
+FFmpegRunner.Samples/obj/release/
+.vs/
+.vscode/
