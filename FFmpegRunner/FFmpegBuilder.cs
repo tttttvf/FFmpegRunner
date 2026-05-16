@@ -453,6 +453,14 @@ namespace FFmpegRunner
                 commandArgs = commandArgs + defaultCodec;
             }
 
+            if (_pipeType == PipeType.Frame)
+            {
+                if (!commandArgs.Contains("-f "))
+                    commandArgs += " -f h264";
+                if (!commandArgs.Contains("-an"))
+                    commandArgs += " -an";
+            }
+
             if (_isRtspOutput && commandArgs.Contains("-f ") && !commandArgs.Contains("-f rtsp"))
             {
                 throw new InvalidOperationException("RTSP 推流模式不允许使用其他格式参数。请仅使用 ToRtsp() 方法配置 RTSP 推流。");

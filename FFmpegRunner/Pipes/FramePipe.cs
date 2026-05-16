@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -9,16 +10,6 @@ using System.Threading.Tasks;
 
 namespace FFmpegRunner
 {
-    /// <summary>
-    /// 帧管道实现类。采用长度前缀帧协议进行数据传输。
-    /// 每次传输先读取4字节的长度字段（BigEndian），再根据长度读取完整的帧数据。
-    /// 适用于需要按帧解析数据的高级场景（如视频帧提取、帧级别的实时处理等）。
-    /// </summary>
-    /// <remarks>
-    /// 帧协议格式：
-    /// (4字节长度 BigEndian) (帧数据...)
-    /// 数据流：FFmpeg → NamedPipeServerStream → 解析帧协议 → Channel (byte array) → DataReceived 事件 → 用户回调
-    /// </remarks>
     public class FramePipe : IPipeInterface
     {
         private int _maxFrameSize = 100 * 1024 * 1024;
@@ -29,63 +20,38 @@ namespace FFmpegRunner
         private CancellationTokenSource? _cancelCts;
         private Task? _readTask;
         private Task? _consumerTask;
-        private Channel<byte[]>? _channel;
+        private Channel<byte[]?>? _channel;
         private bool _disposed;
         private int _readTimeoutMs = 5000;
+        private readonly List<byte> _readBuffer = new List<byte>();
+        private readonly List<byte[]> _pendingAu = new List<byte[]>();
+        private bool _pendingAuHasVcl;
 
-        /// <summary>
-        /// 获取或设置帧数据分析器实例。默认使用 <see cref="CompositeFrameAnalyzer"/>
-        /// （包含 H.264、H.265 和 MJPEG 分析器）。设置 <c>null</c> 可禁用帧分析，
-        /// 仅使用基本的尺寸元数据。
-        /// </summary>
         public IFrameAnalyzer? FrameAnalyzer { get; set; } = new CompositeFrameAnalyzer();
 
-        /// <summary>
-        /// 获取当前管道的名称。
-        /// </summary>
         public string PipeName { get; }
 
-        /// <summary>
-        /// 获取或设置单次读取操作的超时时间（毫秒）。默认值 5000ms。
-        /// 设置为 0 表示无超时。
-        /// </summary>
         public int ReadTimeoutMilliseconds
         {
             get => _readTimeoutMs;
             set => _readTimeoutMs = Math.Max(0, value);
         }
 
-        /// <summary>
-        /// 获取或设置管道数据缓冲区的容量（数据块数）。必须在 <see cref="Initialize"/> 之前设置。默认值 100。
-        /// </summary>
         public int BufferCapacity { get; set; } = 100;
 
-        /// <summary>
-        /// 获取或设置允许的最大帧数据大小（字节）。默认值 100 MB。最小值为 1024 字节。
-        /// 超过此大小的帧将被丢弃。
-        /// </summary>
         public int MaxFrameSize
         {
             get => _maxFrameSize;
             set => _maxFrameSize = Math.Max(value, MinMaxFrameSize);
         }
 
-        /// <summary>
-        /// 当管道读取到完整的帧数据时触发。
-        /// </summary>
         public event EventHandler<FrameEventArgs>? DataReceived;
 
-        /// <summary>
-        /// 初始化 <see cref="FramePipe"/> 类的新实例。
-        /// </summary>
-        /// <param name="pipeName">管道名称。</param>
-        /// <exception cref="ArgumentNullException">当 <paramref name="pipeName"/> 为 <c>null</c> 时抛出。</exception>
         public FramePipe(string pipeName)
         {
             PipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
         }
 
-        /// <inheritdoc />
         public string GetOutputTarget()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -100,7 +66,6 @@ namespace FFmpegRunner
             return $"pipe:1";
         }
 
-        /// <inheritdoc />
         public void Initialize()
         {
             _pipeServer = new NamedPipeServerStream(
@@ -112,13 +77,12 @@ namespace FFmpegRunner
                 BufferSize,
                 BufferSize);
 
-            _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(BufferCapacity)
+            _channel = Channel.CreateBounded<byte[]?>(new BoundedChannelOptions(BufferCapacity)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
         }
 
-        /// <inheritdoc />
         public void Start(CancellationToken cancellationToken)
         {
             if (_pipeServer == null || _channel == null)
@@ -138,57 +102,38 @@ namespace FFmpegRunner
                 {
                     await pipeServer.WaitForConnectionAsync(token).ConfigureAwait(false);
 
-                    var readTimeout = _readTimeoutMs;
-
                     while (!token.IsCancellationRequested)
                     {
                         if (!pipeServer_IsConnected(pipeServer))
                             break;
 
-                        CancellationToken readToken = token;
-                        CancellationTokenSource? timeoutCts = null;
+                        var bytesRead = await ReadWithTimeoutAsync(
+                            pipeServer, sharedBuffer, token).ConfigureAwait(false);
 
-                        if (readTimeout > 0)
+                        if (bytesRead <= 0)
+                            break;
+
+                        for (int i = 0; i < bytesRead; i++)
+                            _readBuffer.Add(sharedBuffer[i]);
+
+                        if (_readBuffer.Count > _maxFrameSize)
                         {
-                            timeoutCts = new CancellationTokenSource(readTimeout);
-                            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-                            readToken = linkedCts.Token;
-                        }
-
-                        try
-                        {
-                            var frameLength = await ReadFrameLengthAsync(
-                                pipeServer, sharedBuffer, readToken).ConfigureAwait(false);
-
-                            if (frameLength <= 0)
-                                break;
-
-                            if (frameLength > _maxFrameSize)
-                                break;
-
-                            var frameData = await ReadFrameDataAsync(
-                                pipeServer, sharedBuffer, frameLength, readToken).ConfigureAwait(false);
-
-                            if (frameData == null)
-                                break;
-
-                            await writer.WriteAsync(frameData, token).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                        {
+                            _readBuffer.Clear();
                             continue;
                         }
-                        finally
-                        {
-                            timeoutCts?.Dispose();
-                        }
+
+                        ProcessBuffer(writer, token);
                     }
+
+                    FlushPendingAu(writer, token);
                 }
                 catch (OperationCanceledException)
                 {
+                    FlushPendingAu(writer, token);
                 }
                 catch (IOException)
                 {
+                    FlushPendingAu(writer, token);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -210,7 +155,8 @@ namespace FFmpegRunner
                     {
                         while (reader.TryRead(out var data))
                         {
-                            OnDataReceived(data);
+                            if (data != null)
+                                OnDataReceived(data);
                         }
                     }
                 }
@@ -220,7 +166,6 @@ namespace FFmpegRunner
             }, token);
         }
 
-        /// <inheritdoc />
         public void Stop()
         {
             if (_cancelCts != null)
@@ -245,13 +190,15 @@ namespace FFmpegRunner
                 }
             }
 
+            _readBuffer.Clear();
+            _pendingAu.Clear();
+            _pendingAuHasVcl = false;
             _readTask = null;
             _consumerTask = null;
             _cancelCts = null;
             _channel = null;
         }
 
-        /// <inheritdoc />
         public void Dispose()
         {
             if (_disposed)
@@ -295,10 +242,6 @@ namespace FFmpegRunner
             _disposed = true;
         }
 
-        /// <summary>
-        /// 触发 <see cref="DataReceived"/> 事件，使用注入的 <see cref="IFrameAnalyzer"/> 分析帧数据。
-        /// </summary>
-        /// <param name="data">从管道读取的帧数据。</param>
         protected virtual void OnDataReceived(byte[] data)
         {
             FrameMetadata metadata;
@@ -328,118 +271,241 @@ namespace FFmpegRunner
             DataReceived?.Invoke(this, new FrameEventArgs(data, metadata));
         }
 
-        /// <summary>
-        /// 异步读取帧长度字段（4字节 BigEndian）。
-        /// </summary>
-        /// <param name="pipeStream">管道流。</param>
-        /// <param name="buffer">共享缓冲区。</param>
-        /// <param name="token">取消令牌。</param>
-        /// <returns>帧数据长度，返回 -1 表示连接已断开。</returns>
-        private static async Task<int> ReadFrameLengthAsync(
-            PipeStream pipeStream,
+        private async Task<int> ReadWithTimeoutAsync(
+            NamedPipeServerStream pipeStream,
             byte[] buffer,
             CancellationToken token)
         {
-            var offset = 0;
-            var zeroReadCount = 0;
-            const int maxZeroReads = 10;
-
-            while (offset < 4)
+            if (_readTimeoutMs <= 0)
             {
-                if (!pipeServer_IsConnected(pipeStream))
-                    return -1;
+                return await pipeStream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
+            }
 
-                var bytesRead = await pipeStream.ReadAsync(
-                    buffer, offset, 4 - offset, token).ConfigureAwait(false);
+            using var timeoutCts = new CancellationTokenSource(_readTimeoutMs);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
 
-                if (bytesRead == 0)
+            try
+            {
+                return await pipeStream.ReadAsync(buffer, 0, buffer.Length, linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                return 0;
+            }
+        }
+
+        private void ProcessBuffer(ChannelWriter<byte[]?> writer, CancellationToken token)
+        {
+            while (true)
+            {
+                var mjpegFrame = ExtractMjpegFrame(_readBuffer);
+                if (mjpegFrame != null)
                 {
-                    zeroReadCount++;
-
-                    if (!pipeServer_IsConnected(pipeStream))
-                        return -1;
-
-                    if (zeroReadCount >= maxZeroReads)
-                        return -1;
-
+                    FlushPendingAu(writer, token);
+                    writer.TryWrite(mjpegFrame);
                     continue;
                 }
 
-                zeroReadCount = 0;
-                offset += bytesRead;
-            }
+                var nalUnit = ExtractSingleNalUnit(_readBuffer);
+                if (nalUnit == null)
+                    break;
 
-            return ReadInt32BigEndian(buffer, 0);
+                bool isVcl = IsVclNalUnit(nalUnit);
+                bool isBoundary = IsAuBoundary(nalUnit);
+
+                if (_pendingAuHasVcl && (isBoundary || isVcl))
+                {
+                    var au = MergeNalUnits(_pendingAu);
+                    writer.TryWrite(au);
+                    _pendingAu.Clear();
+                    _pendingAuHasVcl = false;
+                }
+
+                _pendingAu.Add(nalUnit);
+
+                if (isVcl)
+                {
+                    _pendingAuHasVcl = true;
+                }
+            }
         }
 
-        /// <summary>
-        /// 异步读取指定长度的帧数据。
-        /// </summary>
-        /// <param name="pipeStream">管道流。</param>
-        /// <param name="buffer">共享缓冲区。</param>
-        /// <param name="frameLength">期望读取的帧数据长度。</param>
-        /// <param name="token">取消令牌。</param>
-        /// <returns>读取到的帧数据，返回 <c>null</c> 表示连接已断开。</returns>
-        private static async Task<byte[]?> ReadFrameDataAsync(
-            PipeStream pipeStream,
-            byte[] buffer,
-            int frameLength,
-            CancellationToken token)
+        private void FlushPendingAu(ChannelWriter<byte[]?> writer, CancellationToken token)
         {
-            if (frameLength <= 0)
+            if (_pendingAu.Count > 0)
+            {
+                var au = MergeNalUnits(_pendingAu);
+                writer.TryWrite(au);
+                _pendingAu.Clear();
+                _pendingAuHasVcl = false;
+            }
+        }
+
+        private static byte[]? ExtractSingleNalUnit(List<byte> buffer)
+        {
+            int firstSC = FindAnnexBStartCode(buffer, 0);
+            if (firstSC < 0)
                 return null;
 
-            var frameData = new byte[frameLength];
-            var offset = 0;
-            var zeroReadCount = 0;
-            const int maxZeroReads = 10;
-
-            while (offset < frameLength)
+            if (firstSC > 0)
             {
-                if (!pipeServer_IsConnected(pipeStream))
-                    return null;
-
-                var bytesToRead = Math.Min(buffer.Length, frameLength - offset);
-                var bytesRead = await pipeStream.ReadAsync(
-                    buffer, 0, bytesToRead, token).ConfigureAwait(false);
-
-                if (bytesRead == 0)
-                {
-                    zeroReadCount++;
-
-                    if (!pipeServer_IsConnected(pipeStream))
-                        return null;
-
-                    if (zeroReadCount >= maxZeroReads)
-                        return null;
-
-                    continue;
-                }
-
-                zeroReadCount = 0;
-                Array.Copy(buffer, 0, frameData, offset, bytesRead);
-                offset += bytesRead;
+                buffer.RemoveRange(0, firstSC);
             }
 
-            return frameData;
+            int secondSC = FindAnnexBStartCode(buffer, 1);
+            if (secondSC < 0)
+                return null;
+
+            var nalUnit = buffer.GetRange(0, secondSC).ToArray();
+            buffer.RemoveRange(0, secondSC);
+            return nalUnit;
         }
 
-        /// <summary>
-        /// 从字节数组读取 BigEndian 编码的 32 位有符号整数。
-        /// </summary>
-        private static int ReadInt32BigEndian(byte[] buffer, int offset)
+        private static int FindAnnexBStartCode(List<byte> buffer, int startIndex)
         {
-            if (BitConverter.IsLittleEndian)
+            for (int i = startIndex; i < buffer.Count - 2; i++)
             {
-                return (buffer[offset] << 24)
-                    | (buffer[offset + 1] << 16)
-                    | (buffer[offset + 2] << 8)
-                    | buffer[offset + 3];
+                if (IsAnnexBStartCode(buffer, i))
+                    return i;
             }
-            else
+            return -1;
+        }
+
+        private static bool IsAnnexBStartCode(List<byte> buffer, int index)
+        {
+            if (index + 3 < buffer.Count &&
+                buffer[index] == 0x00 && buffer[index + 1] == 0x00 &&
+                buffer[index + 2] == 0x00 && buffer[index + 3] == 0x01)
+                return true;
+
+            if (index + 2 < buffer.Count &&
+                (index <= 0 || buffer[index - 1] != 0x00) &&
+                buffer[index] == 0x00 && buffer[index + 1] == 0x00 && buffer[index + 2] == 0x01)
+                return true;
+
+            return false;
+        }
+
+        private static int GetNalUnitTypeByte(byte[] nalUnit)
+        {
+            for (int i = 0; i < nalUnit.Length - 2; i++)
             {
-                return BitConverter.ToInt32(buffer, offset);
+                if (IsStartCodeAt(nalUnit, i, out int scLen))
+                    return nalUnit[i + scLen];
             }
+            return -1;
+        }
+
+        private static bool IsStartCodeAt(byte[] data, int index, out int scLen)
+        {
+            scLen = 0;
+
+            if (index + 3 < data.Length &&
+                data[index] == 0x00 && data[index + 1] == 0x00 &&
+                data[index + 2] == 0x00 && data[index + 3] == 0x01)
+            {
+                scLen = 4;
+                return true;
+            }
+
+            if (index + 2 < data.Length &&
+                data[index] == 0x00 && data[index + 1] == 0x00 && data[index + 2] == 0x01)
+            {
+                if (index <= 0 || data[index - 1] != 0x00)
+                {
+                    scLen = 3;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsVclNalUnit(byte[] nalUnit)
+        {
+            int typeByte = GetNalUnitTypeByte(nalUnit);
+            if (typeByte < 0)
+                return false;
+
+            int h264Type = typeByte & 0x1F;
+            int h265Type = (typeByte >> 1) & 0x3F;
+
+            bool isH264Vcl = h264Type >= 1 && h264Type <= 5;
+            bool isH265Vcl = h265Type <= 15;
+            bool isH265Irap = h265Type >= 16 && h265Type <= 21;
+
+            return isH264Vcl || isH265Vcl || isH265Irap;
+        }
+
+        private static bool IsAuBoundary(byte[] nalUnit)
+        {
+            int typeByte = GetNalUnitTypeByte(nalUnit);
+            if (typeByte < 0)
+                return false;
+
+            if (typeByte == 0x67 || typeByte == 0x69)
+                return true;
+
+            if (typeByte == 0x40 || typeByte == 0x46)
+                return true;
+
+            return false;
+        }
+
+        private static byte[] MergeNalUnits(List<byte[]> nalUnits)
+        {
+            if (nalUnits.Count == 0)
+                return Array.Empty<byte>();
+
+            if (nalUnits.Count == 1)
+                return nalUnits[0];
+
+            int totalLength = 0;
+            for (int i = 0; i < nalUnits.Count; i++)
+                totalLength += nalUnits[i].Length;
+
+            var result = new byte[totalLength];
+            int offset = 0;
+            for (int i = 0; i < nalUnits.Count; i++)
+            {
+                Buffer.BlockCopy(nalUnits[i], 0, result, offset, nalUnits[i].Length);
+                offset += nalUnits[i].Length;
+            }
+
+            return result;
+        }
+
+        private static byte[]? ExtractMjpegFrame(List<byte> buffer)
+        {
+            int soiIndex = -1;
+            for (int i = 0; i < buffer.Count - 1; i++)
+            {
+                if (buffer[i] == 0xFF && buffer[i + 1] == 0xD8)
+                {
+                    soiIndex = i;
+                    break;
+                }
+            }
+
+            if (soiIndex < 0)
+                return null;
+
+            if (soiIndex > 0)
+            {
+                buffer.RemoveRange(0, soiIndex);
+            }
+
+            for (int j = 2; j < buffer.Count - 1; j++)
+            {
+                if (buffer[j] == 0xFF && buffer[j + 1] == 0xD9)
+                {
+                    var frame = buffer.GetRange(0, j + 2).ToArray();
+                    buffer.RemoveRange(0, j + 2);
+                    return frame;
+                }
+            }
+
+            return null;
         }
 
         private static bool pipeServer_IsConnected(PipeStream pipeStream)

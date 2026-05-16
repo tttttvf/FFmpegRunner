@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj": {}
+    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Samples\\FFmpegRunner.Samples.csproj": {}
   },
   "projects": {
-    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj": {
+    "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Samples\\FFmpegRunner.Samples.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
-        "projectName": "FFmpegRunner.Tests",
-        "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\FFmpegRunner.Tests.csproj",
+        "projectUniqueName": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Samples\\FFmpegRunner.Samples.csproj",
+        "projectName": "FFmpegRunner.Samples",
+        "projectPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Samples\\FFmpegRunner.Samples.csproj",
         "packagesPath": "C:\\Users\\ttttt\\.nuget\\packages\\",
-        "outputPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Tests\\obj\\",
+        "outputPath": "E:\\Project\\ffmpeg-runner\\FFmpegRunner.Samples\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "E:\\Microsoft VS Studio\\Shared\\NuGetPackages"
@@ -53,24 +53,6 @@
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
-          "dependencies": {
-            "Microsoft.NET.Test.Sdk": {
-              "target": "Package",
-              "version": "[17.14.1, )"
-            },
-            "coverlet.collector": {
-              "target": "Package",
-              "version": "[6.0.4, )"
-            },
-            "xunit": {
-              "target": "Package",
-              "version": "[2.9.3, )"
-            },
-            "xunit.runner.visualstudio": {
-              "target": "Package",
-              "version": "[3.1.4, )"
-            }
-          },
           "imports": [
             "net461",
             "net462",

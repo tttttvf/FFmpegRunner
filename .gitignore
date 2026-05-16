@@ -4,5 +4,8 @@ FFmpegRunner/obj/release/
 FFmpegRunner.Tests/bin/
 FFmpegRunner.Tests/obj/debug/
 FFmpegRunner.Tests/obj/release/
+FFmpegRunner.Samples/bin/
+FFmpegRunner.Samples/obj/debug/
+FFmpegRunner.Samples/obj/release/
 .vs/
 .vscode/

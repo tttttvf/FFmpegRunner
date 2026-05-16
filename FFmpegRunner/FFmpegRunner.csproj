@@ -7,15 +7,25 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <RootNamespace>FFmpegRunner</RootNamespace>
         <AssemblyName>FFmpegRunner</AssemblyName>
-        <Version>1.0.0</Version>
-        <Authors>FFmpegRunner</Authors>
+        <Version>0.0.1</Version>
+        <Authors>tttttvf</Authors>
         <Description>A cross-platform .NET helper library for FFmpeg process invocation</Description>
+        <PackageReadmeFile>readme.md</PackageReadmeFile>
+        <PackageProjectUrl>https://github.com/tttttvf/FFmpegRunner</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/tttttvf/FFmpegRunner</RepositoryUrl>
+        <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+        <Title>FFmpegRunner</Title>
     </PropertyGroup>
 
     <ItemGroup>
         <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
             <_Parameter1>FFmpegRunner.Tests</_Parameter1>
         </AssemblyAttribute>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="readme.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
