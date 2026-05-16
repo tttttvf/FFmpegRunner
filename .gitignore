@@ -3,8 +3,9 @@
 ################################################################################
 
 /.vs
-/FFmpegRunner.Tests/obj/Debug/net8.0
-/FFmpegRunner.Tests/obj/Release/net8.0
-/FFmpegRunner.Tests/bin/Release/net8.0
-/FFmpegRunner.Tests/bin/Debug/net8.0
-/FFmpegRunner.Samples/obj
+/FFmpegRunner.Tests/obj/Debug/
+/FFmpegRunner.Tests/obj/Release/
+/FFmpegRunner.Tests/bin/Release/
+/FFmpegRunner.Tests/bin/Debug/
+/FFmpegRunner.Samples/obj/Debug/
+/FFmpegRunner.Samples/obj/Release/
