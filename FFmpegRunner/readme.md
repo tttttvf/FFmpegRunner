@@ -90,7 +90,7 @@ new FFmpegBuilder()
 
 ### FramePipe
 
-Supports H.264/H.265 Annex B start code parsing, Access Unit aggregation, and frame type analysis. Use with IFrameAnalyzer to identify frame types:
+Uses `IFrameSplitter` to split raw byte streams at frame boundaries, then `IFrameAnalyzer` to identify frame types. The default `CompositeFrameSplitter` uses a chain of responsibility (H.264 → H.265 → MJPEG), which can be customized:
 
 ```csharp
 new FFmpegBuilder()
@@ -111,6 +111,30 @@ new FFmpegBuilder()
     .Start();
 ```
 
+#### Custom Frame Splitter
+
+Use `WithFrameSplitter()` to precisely control frame boundary detection and support new codec formats:
+
+```csharp
+// Only handle H.264 and MJPEG, exclude H.265
+var customSplitter = new CompositeFrameSplitter(
+    new H264FrameSplitter(),
+    new MjpegFrameSplitter()
+);
+
+new FFmpegBuilder()
+    .FromSource("input.mp4")
+    .WithVideoCodec("h264")
+    .WithOverwrite(true)
+    .ToPipe(pipe => pipe
+        .WithPipeType(PipeType.Frame)
+        .WithFrameSplitter(customSplitter)
+        .WithFrameAnalyzer(new H264FrameAnalyzer())
+        .WithCallback((data, metadata) => { ... }))
+    .Build()
+    .Start();
+```
+
 Supported analyzers:
 
 | Analyzer | Description |
@@ -120,9 +144,38 @@ Supported analyzers:
 | `MjpegFrameAnalyzer` | MJPEG frame analysis, splits by SOI/EOI markers |
 | `CompositeFrameAnalyzer` | Combines multiple analyzers (default) |
 
+Supported splitters:
+
+| Splitter | Description |
+|----------|-------------|
+| `H264FrameSplitter` | H.264 Annex B NAL splitting + AU aggregation |
+| `H265FrameSplitter` | H.265 Annex B NAL splitting + AU aggregation |
+| `MjpegFrameSplitter` | MJPEG SOI/EOI frame boundary detection |
+| `CompositeFrameSplitter` | Combines multiple splitters (default, chain of responsibility) |
+
+#### Extending with Custom Splitters
+
+Implement the `IFrameSplitter` interface to register into the chain:
+
+```csharp
+public class MyCodecSplitter : IFrameSplitter
+{
+    public bool TryExtractFrame(List<byte> buffer, out byte[]? frame) { ... }
+    public bool TryFlush(out byte[]? frame) { ... }
+    public void Reset() { ... }
+}
+
+// Register
+var splitter = new CompositeFrameSplitter();
+splitter.AddSplitter(new MyCodecSplitter());
+
+// Remove a default splitter
+splitter.RemoveSplitter<H265FrameSplitter>();
+```
+
 ### MJPEG Image Capture
 
-With MJPEG encoding, each frame is a complete JPEG image - no decoding needed:
+With MJPEG encoding, each frame is a complete JPEG image. The underlying `MjpegFrameSplitter` automatically splits frames by SOI(0xFFD8)/EOI(0xFFD9) markers — no additional decoding required:
 
 ```csharp
 new FFmpegBuilder()
@@ -182,6 +235,44 @@ using var runner = new FFmpegBuilder()
     .ToFile("output.mp4")
     .Build();
 ```
+
+### Exception Handling
+
+All business exceptions in the library use `FFmpegRunnerException`, which provides an `ErrorCode` for precise identification and `ContextData` for diagnostic context:
+
+```csharp
+try
+{
+    var path = FFmpegConfig.GetFFmpegPath();
+}
+catch (FFmpegRunnerException ex) when (ex.ErrorCode == "FFMPEG_NOT_FOUND")
+{
+    Console.WriteLine($"FFmpeg not found: {ex.Message}");
+}
+
+try
+{
+    var streams = runner.GetStreamInfo();
+}
+catch (FFmpegRunnerException ex)
+{
+    Console.WriteLine($"Query failed (ErrorCode={ex.ErrorCode}): {ex.Message}");
+    // ContextData contains ExitCode, SourcePath, etc.
+}
+```
+
+Common error codes:
+
+| ErrorCode | Description |
+|-----------|-------------|
+| `FFMPEG_NOT_FOUND` | FFmpeg executable not found |
+| `FFPROBE_NOT_FOUND` | ffprobe executable not found |
+| `FFPROBE_FAILED` | ffprobe execution failed |
+| `FFMPEG_TIMEOUT` | FFmpeg process timed out |
+| `FFMPEG_ALREADY_RUNNING` | FFmpeg process is already running |
+| `BUILD_MISSING_SOURCE` | Source path not set during build |
+| `BUILD_MISSING_TARGET` | Output target not set during build |
+| `BUILD_RTSP_FORMAT_CONFLICT` | RTSP streaming mode format conflict |
 
 ## Full Documentation
 
