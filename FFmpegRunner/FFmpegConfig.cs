@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -46,8 +47,13 @@ namespace FFmpegRunner
                 if (TryResolveFromPath(_ffmpegPath!, out var resolved))
                     return resolved;
 
-                throw new FileNotFoundException(
-                    $"指定的 FFmpeg 路径不存在: {_ffmpegPath}");
+                throw new FFmpegRunnerException(
+                    $"指定的 FFmpeg 路径不存在。",
+                    "FFMPEG_NOT_FOUND",
+                    new Dictionary<string, object?>
+                    {
+                        ["SpecifiedPath"] = _ffmpegPath
+                    });
             }
 
             return ResolveFFmpegPath();
@@ -96,8 +102,9 @@ namespace FFmpegRunner
                 }
             }
 
-            throw new FileNotFoundException(
-                "无法找到 FFmpeg 可执行文件。请确保 FFmpeg 已安装并在 PATH 环境变量中，或通过 FFmpegConfig.SetFFmpegPath() 显式设置路径。");
+            throw new FFmpegRunnerException(
+                "无法找到 FFmpeg 可执行文件。请确保 FFmpeg 已安装并在 PATH 环境变量中，或通过 FFmpegConfig.SetFFmpegPath() 显式设置路径。",
+                "FFMPEG_NOT_FOUND");
         }
 
         /// <summary>

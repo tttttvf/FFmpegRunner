@@ -61,9 +61,9 @@ public static class Example02_VideoInfo
                 Console.WriteLine();
             }
         }
-        catch (Exception ex)
+        catch (FFmpegRunnerException ex)
         {
-            Console.WriteLine($"  查询失败: {ex.Message}");
+            Console.WriteLine($"  查询失败 (ErrorCode={ex.ErrorCode}): {ex.Message}");
             Console.WriteLine("  请确认 ffprobe 已安装且在 PATH 中");
         }
     }

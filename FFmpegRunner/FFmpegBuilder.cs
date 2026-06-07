@@ -34,6 +34,7 @@ namespace FFmpegRunner
         private int _bufferCapacity = 100;
         private PipeType _pipeType = PipeType.Stream;
         private IFrameAnalyzer? _frameAnalyzer;
+        private IFrameSplitter? _frameSplitter;
         private bool _videoCodecExplicitlySet;
         private bool _isRtspOutput;
 
@@ -368,6 +369,7 @@ namespace FFmpegRunner
             _bufferCapacity = pipeTarget.BufferCapacity;
             _pipeType = pipeTarget.PipeType;
             _frameAnalyzer = pipeTarget.FrameAnalyzer;
+            _frameSplitter = pipeTarget.FrameSplitter;
 
             return this;
         }
@@ -436,12 +438,16 @@ namespace FFmpegRunner
         {
             if (string.IsNullOrEmpty(_sourcePath))
             {
-                throw new InvalidOperationException("必须设置源路径（调用 FromSource() 或 FromRtspSource()）。");
+                throw new FFmpegRunnerException(
+                    "必须设置源路径（调用 FromSource() 或 FromRtspSource()）。",
+                    "BUILD_MISSING_SOURCE");
             }
 
             if (string.IsNullOrEmpty(_targetPath) && !_usePipeOutput)
             {
-                throw new InvalidOperationException("必须设置输出目标（调用 ToFile()、ToPipe()、ToNetwork() 或 ToRtsp()）。");
+                throw new FFmpegRunnerException(
+                    "必须设置输出目标（调用 ToFile()、ToPipe()、ToNetwork() 或 ToRtsp()）。",
+                    "BUILD_MISSING_TARGET");
             }
 
             var commandArgs = BuildCommandArguments();
@@ -463,14 +469,16 @@ namespace FFmpegRunner
 
             if (_isRtspOutput && commandArgs.Contains("-f ") && !commandArgs.Contains("-f rtsp"))
             {
-                throw new InvalidOperationException("RTSP 推流模式不允许使用其他格式参数。请仅使用 ToRtsp() 方法配置 RTSP 推流。");
+                throw new FFmpegRunnerException(
+                    "RTSP 推流模式不允许使用其他格式参数。请仅使用 ToRtsp() 方法配置 RTSP 推流。",
+                    "BUILD_RTSP_FORMAT_CONFLICT");
             }
 
             IPipeInterface? pipe = null;
 
             if (_usePipeOutput)
             {
-                pipe = CreatePipe(_pipeType, _pipeName, _frameAnalyzer);
+                pipe = CreatePipe(_pipeType, _pipeName, _frameAnalyzer, _frameSplitter);
                 pipe.BufferCapacity = _bufferCapacity;
             }
 
@@ -501,7 +509,7 @@ namespace FFmpegRunner
             return Regex.IsMatch(arguments, @"-c:v\s+\S+") || Regex.IsMatch(arguments, @"-vcodec\s+\S+");
         }
 
-        private static IPipeInterface CreatePipe(PipeType pipeType, string pipeName, IFrameAnalyzer? frameAnalyzer)
+        private static IPipeInterface CreatePipe(PipeType pipeType, string pipeName, IFrameAnalyzer? frameAnalyzer, IFrameSplitter? frameSplitter)
         {
             switch (pipeType)
             {
@@ -509,6 +517,8 @@ namespace FFmpegRunner
                     var framePipe = new FramePipe(pipeName);
                     if (frameAnalyzer != null)
                         framePipe.FrameAnalyzer = frameAnalyzer;
+                    if (frameSplitter != null)
+                        framePipe.FrameSplitter = frameSplitter;
                     return framePipe;
                 case PipeType.Stream:
                 default:
