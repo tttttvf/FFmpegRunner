@@ -14,6 +14,7 @@ namespace FFmpegRunner
         internal int BufferCapacity { get; private set; } = 100;
         internal PipeType PipeType { get; private set; } = PipeType.Stream;
         internal IFrameAnalyzer? FrameAnalyzer { get; private set; }
+        internal IFrameSplitter? FrameSplitter { get; private set; }
 
         /// <summary>
         /// 设置管道数据回调处理函数。
@@ -87,6 +88,25 @@ namespace FFmpegRunner
         public PipeTarget WithFrameAnalyzer(IFrameAnalyzer? analyzer)
         {
             FrameAnalyzer = analyzer;
+            return this;
+        }
+
+        /// <summary>
+        /// 设置帧分割器实例。仅对 <see cref="PipeType.Frame"/> 管道生效。
+        /// 用于自定义帧边界识别逻辑，支持扩展新的编码格式。
+        /// </summary>
+        /// <param name="splitter">帧分割器实例。为 <c>null</c> 时使用默认 <see cref="CompositeFrameSplitter"/>。</param>
+        /// <returns>当前配置实例。</returns>
+        /// <example>
+        /// <code>
+        /// .WithFrameSplitter(new CompositeFrameSplitter(
+        ///     new H264FrameSplitter(),
+        ///     new MjpegFrameSplitter()))
+        /// </code>
+        /// </example>
+        public PipeTarget WithFrameSplitter(IFrameSplitter? splitter)
+        {
+            FrameSplitter = splitter;
             return this;
         }
     }

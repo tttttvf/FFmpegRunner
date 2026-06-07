@@ -56,7 +56,9 @@ public static class Example05_CaptureImage
         Console.WriteLine("特点:");
         Console.WriteLine("  - 每个帧是完整 JPEG，可直接用 Image.Load() 加载编辑");
         Console.WriteLine("  - 无需 H.264 解码器，零额外依赖");
+        Console.WriteLine("  - 底层由 MjpegFrameSplitter 通过 SOI/EOI 标记自动切分");
         Console.WriteLine("  - 适合实时预览、AI 分析、截图保存");
+        Console.WriteLine("  - 可通过 WithFrameSplitter 自定义分帧逻辑（如只处理 MJPEG）");
         Console.WriteLine();
         Console.WriteLine("提示: 取消注释 '.Start()' 即可启动");
         Console.WriteLine("注意: 建议始终配置 .WithOverwrite(true)，否则当管道目标已存在时");

@@ -133,8 +133,15 @@ namespace FFmpegRunner
 
             if (process.ExitCode != 0)
             {
-                throw new InvalidOperationException(
-                    $"ffprobe 执行失败 (ExitCode={process.ExitCode}): {error}");
+                throw new FFmpegRunnerException(
+                    $"ffprobe 执行失败。",
+                    "FFPROBE_FAILED",
+                    new Dictionary<string, object?>
+                    {
+                        ["ExitCode"] = process.ExitCode,
+                        ["Error"] = error,
+                        ["SourcePath"] = SourcePath
+                    });
             }
 
             return ParseStreamInfo(output);
@@ -168,8 +175,16 @@ namespace FFmpegRunner
                 if (!exited)
                 {
                     KillProcess();
-                    throw new TimeoutException(
-                        $"FFmpeg 进程执行超时 ({TimeoutMilliseconds}ms)。");
+                    throw new FFmpegRunnerException(
+                        $"FFmpeg 进程执行超时。",
+                        "FFMPEG_TIMEOUT",
+                        new Dictionary<string, object?>
+                        {
+                            ["TimeoutMilliseconds"] = TimeoutMilliseconds,
+                            ["SourcePath"] = SourcePath,
+                            ["TargetPath"] = TargetPath,
+                            ["CommandArguments"] = CommandArguments
+                        });
                 }
 
                 StandardError = stdErrTask.Result;
@@ -364,7 +379,15 @@ namespace FFmpegRunner
         {
             if (_process != null && !_process.HasExited)
             {
-                throw new InvalidOperationException("FFmpeg 进程已在运行中。");
+                throw new FFmpegRunnerException(
+                    "FFmpeg 进程已在运行中，不允许重复启动。",
+                    "FFMPEG_ALREADY_RUNNING",
+                    new Dictionary<string, object?>
+                    {
+                        ["ProcessId"] = _process.Id,
+                        ["SourcePath"] = SourcePath,
+                        ["TargetPath"] = TargetPath
+                    });
             }
         }
 
@@ -383,8 +406,14 @@ namespace FFmpegRunner
                 ffprobePath = Path.Combine(directory, "ffprobe");
                 if (!File.Exists(ffprobePath))
                 {
-                    throw new FileNotFoundException(
-                        $"无法找到 ffprobe 可执行文件。期望路径: {Path.Combine(directory, ffprobeName)}");
+                    throw new FFmpegRunnerException(
+                        $"无法找到 ffprobe 可执行文件。",
+                        "FFPROBE_NOT_FOUND",
+                        new Dictionary<string, object?>
+                        {
+                            ["ExpectedPath"] = Path.Combine(directory, ffprobeName),
+                            ["FFmpegDirectory"] = directory
+                        });
                 }
             }
 

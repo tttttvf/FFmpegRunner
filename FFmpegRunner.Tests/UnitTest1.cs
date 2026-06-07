@@ -46,7 +46,7 @@ namespace FFmpegRunner.Tests
             var builder = new FFmpegBuilder()
                 .ToFile("output.mp4");
 
-            Assert.Throws<InvalidOperationException>(() => builder.Build());
+            Assert.Throws<FFmpegRunnerException>(() => builder.Build());
         }
 
         [Fact]
@@ -55,7 +55,7 @@ namespace FFmpegRunner.Tests
             var builder = new FFmpegBuilder()
                 .FromSource("input.mp4");
 
-            Assert.Throws<InvalidOperationException>(() => builder.Build());
+            Assert.Throws<FFmpegRunnerException>(() => builder.Build());
         }
 
         [Fact]
