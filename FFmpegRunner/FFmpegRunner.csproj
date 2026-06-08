@@ -7,7 +7,7 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <RootNamespace>FFmpegRunner</RootNamespace>
         <AssemblyName>FFmpegRunner</AssemblyName>
-        <Version>0.0.1</Version>
+        <Version>1.0.0</Version>
         <Authors>tttttvf</Authors>
         <Description>A cross-platform .NET helper library for FFmpeg process invocation</Description>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
